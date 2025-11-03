@@ -1,0 +1,64 @@
+{
+  "placeholderImages": [
+    {
+      "id": "hero-background",
+      "description": "A lush green farm field under a blue sky.",
+      "imageUrl": "https://picsum.photos/seed/hero/1920/1080",
+      "imageHint": "green farm"
+    },
+    {
+      "id": "wheat-field",
+      "description": "A golden wheat field ready for harvest.",
+      "imageUrl": "https://picsum.photos/seed/wheat/600/400",
+      "imageHint": "wheat field"
+    },
+    {
+      "id": "paddy-field",
+      "description": "A vibrant green paddy rice field.",
+      "imageUrl": "https://picsum.photos/seed/paddy/600/400",
+      "imageHint": "paddy field"
+    },
+    {
+      "id": "sugarcane-field",
+      "description": "Tall sugarcane plants in a field.",
+      "imageUrl": "https://picsum.photos/seed/sugarcane/600/400",
+      "imageHint": "sugarcane field"
+    },
+    {
+      "id": "vegetable-crates",
+      "description": "Crates filled with fresh vegetables.",
+      "imageUrl": "https://picsum.photos/seed/vegetable/600/400",
+      "imageHint": "vegetable crates"
+    },
+    {
+      "id": "farm-truck",
+      "description": "A truck on a farm, loaded with produce.",
+      "imageUrl": "https://picsum.photos/seed/farmtruck/600/400",
+      "imageHint": "farm truck"
+    },
+    {
+      "id": "farmer-portrait",
+      "description": "Portrait of a farmer in a field.",
+      "imageUrl": "https://picsum.photos/seed/farmer/400/400",
+      "imageHint": "farmer portrait"
+    },
+    {
+      "id": "industry-factory",
+      "description": "An industrial factory or processing plant.",
+      "imageUrl": "https://picsum.photos/seed/factory/600/400",
+      "imageHint": "industry factory"
+    },
+    {
+      "id": "government-building",
+      "description": "An official government building.",
+      "imageUrl": "https://picsum.photos/seed/govbuilding/600/400",
+      "imageHint": "government building"
+    },
+    {
+      "id": "map-background",
+      "description": "A stylized map of a region.",
+      "imageUrl": "https://picsum.photos/seed/map/1200/800",
+      "imageHint": "region map"
+    }
+  ]
+}

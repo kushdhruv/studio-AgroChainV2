@@ -1,0 +1,16 @@
+{
+  "name": "AgriChain DApp",
+  "short_name": "AgriChain",
+  "description": "Revolutionizing Agriculture, One Shipment at a Time.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#00ff00",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

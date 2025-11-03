@@ -1,0 +1,133 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user in the AgriChain system, regardless of role.",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID from Firebase Auth." },
+        "role": { "type": "string", "enum": ["Farmer", "Transporter", "Industry", "Government", "Admin"] },
+        "name": { "type": "string", "description": "Full name of the user or company." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "mobile": { "type": "string", "description": "User's mobile number (optional)." },
+        "avatarUrl": { "type": "string", "format": "uri", "description": "URL for the user's profile picture." },
+        "walletAddress": { "type": "string", "description": "User's mock wallet address." },
+        "kycVerified": { "type": "boolean", "description": "Flag indicating if the user has completed KYC.", "default": false },
+        "details": {
+          "type": "object",
+          "description": "Role-specific KYC details."
+        }
+      },
+      "required": ["uid", "role", "name", "email"]
+    },
+    "PendingApproval": {
+      "title": "Pending Approval",
+      "type": "object",
+      "description": "Represents a user registration awaiting admin approval.",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "role", "date"]
+    },
+    "Shipment": {
+      "title": "Shipment",
+      "type": "object",
+      "description": "Represents a shipment of produce/waste.",
+      "properties": {
+        "farmerId": { "type": "string", "description": "UID of the farmer who created the shipment." },
+        "farmerName": { "type": "string" },
+        "industryId": { "type": "string", "description": "UID of the industry that purchased the shipment." },
+        "transporterId": { "type": "string", "description": "UID of the transporter." },
+        "content": { "type": "string" },
+        "quantity": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "askPrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "OfferMade", "AwaitingPayment", "ReadyForPickup", "In-Transit", "Delivered", "Cancelled", "Disputed"] },
+        "imageUrl": { "type": "string", "format": "uri" },
+        "imageHint": { "type": "string" },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "details": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["farmerId", "content", "quantity", "origin", "askPrice", "status", "imageUrl"]
+    },
+    "Dispute": {
+      "title": "Dispute",
+      "type": "object",
+      "description": "Represents a dispute raised against a shipment.",
+      "properties": {
+        "disputeIdOnChain": { "type": "number", "description": "The numeric ID of the dispute on the smart contract." },
+        "shipmentId": { "type": "string", "description": "The Firestore ID of the disputed shipment." },
+        "shipmentIdOnChain": { "type": "string", "description": "The bytes32 ID of the disputed shipment." },
+        "raiserId": { "type": "string", "description": "UID of the user who raised the dispute." },
+        "raiserWallet": { "type": "string", "description": "Wallet address of the user who raised the dispute." },
+        "reason": { "type": "string", "description": "Initial reason for the dispute." },
+        "status": { "type": "string", "enum": ["Open", "UnderReview", "Resolved"], "default": "Open" },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "submitterId": { "type": "string" },
+              "evidenceHash": { "type": "string", "description": "IPFS hash of the evidence." },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      },
+      "required": ["disputeIdOnChain", "shipmentId", "raiserId", "reason", "status"]
+    },
+    "Oracle": {
+      "title": "Oracle",
+      "type": "object",
+      "description": "Represents a trusted oracle.",
+      "properties": {
+        "address": { "type": "string", "description": "The oracle's wallet address." },
+        "name": { "type": "string" },
+        "active": { "type": "boolean", "default": true },
+        "dateAdded": { "type": "string", "format": "date-time" }
+      },
+      "required": ["address", "name", "active", "dateAdded"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores public profiles for all users. Users can only write to their own document."
+    },
+    "shipments/{shipmentId}": {
+      "schema": { "$ref": "#/entities/Shipment" },
+      "description": "Stores all shipment data. Security rules control access based on user role and shipment status."
+    },
+    "disputes/{disputeId}": {
+        "schema": { "$ref": "#/entities/Dispute" },
+        "description": "Stores all dispute data. Access is limited to involved parties and admins."
+    },
+    "pendingApprovals/{approvalId}": {
+      "schema": { "$ref": "#/entities/PendingApproval" },
+      "description": "Stores new user registrations that are awaiting admin approval before they can be fully activated (kycVerified=true)."
+    },
+    "oracles/{oracleId}": {
+      "schema": { "$ref": "#/entities/Oracle" },
+      "description": "Stores a list of trusted oracles that can provide external data."
+    }
+  }
+}

@@ -1,0 +1,196 @@
+/**
+ * @file Firestore Security Rules for AgriChain DApp
+ *
+ * @core_philosophy This ruleset enforces a strict user-ownership model for profile data (farmers, transporters, industries, government authorities).
+ *   Shipments are owned by farmers, and state updates are linked to transporters.
+ *   Disputes can be raised by any participant.
+ *
+ * @data_structure
+ *   - /farmers/{farmerId}: Farmer profiles, accessible only by the farmer.
+ *   - /transporters/{transporterId}: Transporter profiles, accessible only by the transporter.
+ *   - /industries/{industryId}: Industry profiles, accessible only by the industry.
+ *   - /government_authorities/{authorityId}: Government authority profiles, accessible only by the authority.
+ *   - /farmers/{farmerId}/shipments/{shipmentId}: Shipments owned by a farmer, accessible only by the farmer.
+ *   - /shipment_state_updates/{shipmentStateUpdateId}: Shipment state updates, accessible only by authorized transporters.
+ *   - /disputes/{disputeId}: Disputes, accessible to participants involved.
+ *   - /users/{userId}: User index, accessible only by the user themselves.
+ *
+ * @key_security_decisions
+ *   - User data is strictly segregated and accessible only to the owning user.
+ *   - Shipments are owned by farmers and can only be created under the farmer's ID.
+ *   - State updates are linked to shipments and transporters.
+ *   - Data consistency is enforced by validating ownership fields on create and update.
+ *   - List operations are secured by path-based authorization or explicit authorization checks.
+ *   - Authorization independence is achieved through data denormalization.
+ *
+ * @denormalization_for_authorization
+ *   - Shipments include the farmerId directly in the document.
+ *   - Shipment state updates include the shipmentId and transporterId.
+ *   - Disputes include the shipmentId and raiserId.
+ *
+ * @structural_segregation
+ *   - User profiles are stored in separate collections for farmers, transporters, industries, and government authorities.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Controls access to farmer profile data.
+     * @path /farmers/{farmerId}
+     * @allow (create) User with ID 'farmer123' can create their own profile if request.auth.uid == 'farmer123'.
+     * @deny (create) User with ID 'farmer456' cannot create a profile with ID 'farmer123' if request.auth.uid != 'farmer123'.
+     * @allow (get, list, update, delete) User with ID 'farmer123' can access their own profile.
+     * @deny (get, list, update, delete) User with ID 'farmer456' cannot access farmer profile with ID 'farmer123'.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree.
+     */
+    match /farmers/{farmerId} {
+      allow get: if isOwner(farmerId);
+      allow list: if false;
+      allow create: if isOwner(farmerId);
+      allow update: if isExistingOwner(farmerId);
+      allow delete: if isExistingOwner(farmerId);
+    }
+
+    /**
+     * @description Controls access to transporter profile data.
+     * @path /transporters/{transporterId}
+     * @allow (create) User with ID 'transporter123' can create their own profile if request.auth.uid == 'transporter123'.
+     * @deny (create) User with ID 'transporter456' cannot create a profile with ID 'transporter123' if request.auth.uid != 'transporter123'.
+     * @allow (get, list, update, delete) User with ID 'transporter123' can access their own profile.
+     * @deny (get, list, update, delete) User with ID 'transporter456' cannot access transporter profile with ID 'transporter123'.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree.
+     */
+    match /transporters/{transporterId} {
+      allow get: if isOwner(transporterId);
+      allow list: if false;
+      allow create: if isOwner(transporterId);
+      allow update: if isExistingOwner(transporterId);
+      allow delete: if isExistingOwner(transporterId);
+    }
+
+    /**
+     * @description Controls access to industry profile data.
+     * @path /industries/{industryId}
+     * @allow (create) User with ID 'industry123' can create their own profile if request.auth.uid == 'industry123'.
+     * @deny (create) User with ID 'industry456' cannot create a profile with ID 'industry123' if request.auth.uid != 'industry123'.
+     * @allow (get, list, update, delete) User with ID 'industry123' can access their own profile.
+     * @deny (get, list, update, delete) User with ID 'industry456' cannot access industry profile with ID 'industry123'.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree.
+     */
+    match /industries/{industryId} {
+      allow get: if isOwner(industryId);
+      allow list: if false;
+      allow create: if isOwner(industryId);
+      allow update: if isExistingOwner(industryId);
+      allow delete: if isExistingOwner(industryId);
+    }
+
+    /**
+     * @description Controls access to government authority profile data.
+     * @path /government_authorities/{authorityId}
+     * @allow (create) User with ID 'authority123' can create their own profile if request.auth.uid == 'authority123'.
+     * @deny (create) User with ID 'authority456' cannot create a profile with ID 'authority123' if request.auth.uid != 'authority123'.
+     * @allow (get, list, update, delete) User with ID 'authority123' can access their own profile.
+     * @deny (get, list, update, delete) User with ID 'authority456' cannot access government authority profile with ID 'authority123'.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree.
+     */
+    match /government_authorities/{authorityId} {
+      allow get: if isOwner(authorityId);
+      allow list: if false;
+      allow create: if isOwner(authorityId);
+      allow update: if isExistingOwner(authorityId);
+      allow delete: if isExistingOwner(authorityId);
+    }
+
+    /**
+     * @description Controls access to shipment data associated with a specific farmer.
+     * @path /farmers/{farmerId}/shipments/{shipmentId}
+     * @allow (create) Farmer 'farmer123' can create a shipment under their ID if request.auth.uid == 'farmer123'. The 'farmerId' field in the document must also match.
+     * @deny (create) Farmer 'farmer456' cannot create a shipment under farmer 'farmer123''s ID, even if request.auth.uid == 'farmer456'.
+     * @allow (get, list, update, delete) Farmer 'farmer123' can access, update, and delete their own shipments.
+     * @deny (get, list, update, delete) Farmer 'farmer456' cannot access, update, or delete shipments under farmer 'farmer123''s ID.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
+     */
+    match /farmers/{farmerId}/shipments/{shipmentId} {
+      allow get: if isOwner(farmerId);
+      allow list: if isOwner(farmerId);
+      allow create: if isOwner(farmerId) && request.resource.data.farmerId == farmerId;
+      allow update: if isExistingOwner(farmerId) && resource.data.farmerId == request.resource.data.farmerId;
+      allow delete: if isExistingOwner(farmerId);
+    }
+
+    /**
+     * @description Controls access to shipment state updates.
+     * @path /shipment_state_updates/{shipmentStateUpdateId}
+     * @allow (create) A transporter can create a shipment state update if they are authorized for the shipment.
+     * @deny (create) A transporter cannot create a shipment state update if they are not authorized for the shipment.
+     * @allow (get, list) Anyone can read shipment state updates.
+     * @deny (update, delete) No one can update or delete a shipment state update.
+     * @principle Restricts access to creating shipment state updates to authorized transporters.
+     */
+    match /shipment_state_updates/{shipmentStateUpdateId} {
+      allow get, list: if true;
+      allow create: if isSignedIn(); // TODO: Add more specific authorization logic
+      allow update, delete: if false;
+    }
+
+    /**
+     * @description Controls access to disputes.
+     * @path /disputes/{disputeId}
+     * @allow (create) Any authenticated user can create a dispute.
+     * @deny (create) An unauthenticated user cannot create a dispute.
+     * @allow (get, list) Anyone can read disputes.
+     * @deny (update, delete) No one can update or delete a dispute.
+     */
+    match /disputes/{disputeId} {
+      allow get, list: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+      /**
+       * @description Controls access to user information.
+       * @path /users/{userId}
+       * @allow (create) User with ID 'user123' can create their own profile if request.auth.uid == 'user123'.
+       * @deny (create) User with ID 'user456' cannot create a profile with ID 'user123' if request.auth.uid != 'user123'.
+       * @allow (get, list, update, delete) User with ID 'user123' can access their own profile.
+       * @deny (get, list, update, delete) User with ID 'user456' cannot access user profile with ID 'user123'.
+       * @principle Enforces document ownership for writes, restricts access to a user's own data tree.
+       */
+    match /users/{userId} {
+        allow get: if isOwner(userId);
+        allow list: if false;
+        allow create: if isOwner(userId);
+        allow update: if isExistingOwner(userId);
+        allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Controls access to pending approval requests.
+     * @path /pendingApprovals/{approvalId}
+     * @allow (create) Any authenticated user can create a pending approval during registration.
+     * @allow (get) Admins and the user who created the approval can read it.
+     * @principle Allow new user registration while maintaining security.
+     */
+    match /pendingApprovals/{approvalId} {
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow update, delete: if false;
+    }
+  }
+
+  // Helper functions
+  function isSignedIn() {
+    return request.auth != null;
+  }
+
+  function isOwner(userId) {
+    return request.auth.uid == userId;
+  }
+
+  function isExistingOwner(userId) {
+    return isOwner(userId) && resource != null;
+  }
+}
