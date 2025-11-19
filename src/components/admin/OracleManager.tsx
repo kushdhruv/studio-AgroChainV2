@@ -64,19 +64,20 @@ export function OracleManager() {
       });
 
       // Also save the oracle's info to Firestore for easy listing in the UI
-      const oracleDocRef = doc(firestore, 'oracles', values.address);
+      const normalizedAddress = values.address.toLowerCase(); // ✅ Normalize to lowercase
+      const oracleDocRef = doc(firestore, 'oracles', normalizedAddress);
       setDocumentNonBlocking(oracleDocRef, {
-      address: values.address,
+      address: normalizedAddress, // ✅ Use normalized address
       name: values.name,
       active: true,
       dateAdded: new Date().toISOString(),
       });
-      await setDoc(doc(firestore, 'users', values.address), {
-      uid: values.address,
+      await setDoc(doc(firestore, 'users', normalizedAddress), { // ✅ Use normalized address as doc ID
+      uid: normalizedAddress, // ✅ Use normalized address for consistency
       role: 'Oracle',
       name: values.name,
       email: `${values.name.toLowerCase().replace(/\s+/g, '')}@oracle.agrichain.com`,
-      walletAddress: values.address,
+      walletAddress: normalizedAddress, // ✅ Use normalized address
       kycVerified: true,
       active: true,
       createdAt: new Date().toISOString(),
@@ -105,7 +106,8 @@ export function OracleManager() {
             args: [oracle.address],
         });
 
-        const oracleDocRef = doc(firestore, 'oracles', oracle.id);
+        const normalizedAddress = oracle.address.toLowerCase(); // ✅ Normalize for consistent doc ID
+        const oracleDocRef = doc(firestore, 'oracles', normalizedAddress);
         deleteDocumentNonBlocking(oracleDocRef);
 
         toast({

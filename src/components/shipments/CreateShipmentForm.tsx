@@ -19,11 +19,10 @@ import { useFirestore, useUser } from "@/firebase";
 import { setDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { doc, collection } from "firebase/firestore";
 import { uploadToIPFS } from "@/lib/actions";
-import { useAccount } from 'wagmi';
+import { useAccount, useWriteContract } from 'wagmi';
 import { ShipmentTokenABI } from '@/contracts/ShipmentToken';
 import { contractAddresses } from '@/contracts/addresses';
-import { encodeBytes32String } from "ethers";
-import { useTransactionStatus } from '@/hooks/use-transaction-status';
+import { canonicalizeShipmentId, validateShipmentId } from "@/lib/shipment-validation";
 import { validateContractBeforeInteraction } from '@/lib/contract-validation';
 
 const formSchema = z.object({
@@ -39,19 +38,7 @@ export function CreateShipmentForm({ user: userProfile }: { user: User | null })
   const { user } = useUser();
   const firestore = useFirestore();
   const { address: walletAddress, isConnected } = useAccount();
-  const {
-    writeContract,
-    isLoading,
-    isPending,
-    isSuccess,
-    isError,
-    txHash,
-  } = useTransactionStatus({
-    contractName: 'ShipmentToken',
-    functionName: 'createShipment',
-    contractAddress: contractAddresses.ShipmentToken,
-    successMessage: 'Shipment created successfully on-chain!',
-  });
+  const { writeContractAsync, isPending } = useWriteContract();
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -110,9 +97,10 @@ export function CreateShipmentForm({ user: userProfile }: { user: User | null })
       // Step 2: Prepare on-chain data
       const newShipmentRef = doc(collection(firestore, 'shipments'));
       const shipmentId = newShipmentRef.id;
-      // IMPORTANT: formatBytes32String requires a string of 31 bytes or less.
-      // Firestore IDs are 20 characters, which is safe. We truncate just in case.
-      const shipmentIdBytes32 = encodeBytes32String(shipmentId.slice(0,31));
+      
+      // ✅ FIXED: Use proper shipment ID canonicalization with validation
+      const shipmentIdBytes32 = canonicalizeShipmentId(shipmentId);
+      validateShipmentId(shipmentIdBytes32, 'CreateShipmentForm');
 
       const shipmentDetails = JSON.stringify({
         firestoreId: shipmentId,
@@ -131,34 +119,31 @@ export function CreateShipmentForm({ user: userProfile }: { user: User | null })
       }
 
       // Step 4: Call smart contract to create shipment
-      await writeContract({
+      const txHash = await writeContractAsync({
         abi: ShipmentTokenABI,
         address: contractAddresses.ShipmentToken,
         functionName: 'createShipment',
         args: [shipmentIdBytes32, shipmentDetails],
-      }, {
-        onSuccess: async (receipt) => {
-          // Step 5: Only create Firestore document after transaction succeeds
-          const shipmentData = {
-            ...values,
-            id: shipmentId,
-            shipmentIdOnChain: shipmentIdBytes32,
-            imageUrl: ipfsHash,
-            farmerId: user.uid,
-            farmerName: userProfile.name,
-            status: 'Pending',
-            imageHint: values.content,
-            timeline: [
-              { status: 'Pending', timestamp: new Date().toISOString(), details: 'Shipment created by farmer on-chain.' },
-            ]
-          };
-          setDocumentNonBlocking(newShipmentRef, shipmentData, { merge: false });
-          router.push('/dashboard/marketplace');
-        },
-        onError: (error) => {
-          throw new Error(`Transaction failed: ${error.message}`);
-        },
       });
+      
+      // Step 5: Only create Firestore document after transaction succeeds
+      const shipmentData = {
+        ...values,
+        id: shipmentId,
+        shipmentIdOnChain: shipmentIdBytes32,
+        imageUrl: ipfsHash,
+        farmerId: user.uid,
+        farmerName: userProfile.name,
+        status: 'Pending',
+        imageHint: values.content,
+        timeline: [
+          { status: 'Pending', timestamp: new Date().toISOString(), details: 'Shipment created by farmer on-chain.' },
+        ]
+      };
+      setDocumentNonBlocking(newShipmentRef, shipmentData, { merge: false });
+      
+      toast({ title: 'Shipment Created', description: 'Your shipment has been created on-chain and listed on the marketplace.' });
+      router.push('/dashboard/marketplace');
 
     } catch (e: any) {
         toast({ variant: 'destructive', title: 'Shipment Creation Failed', description: e.message });
@@ -227,9 +212,9 @@ export function CreateShipmentForm({ user: userProfile }: { user: User | null })
                 <FormDescription>Upload an image of the produce. This will be stored on IPFS.</FormDescription>
             </FormItem>
 
-            <Button type="submit" className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isUploading || isLoading || !file || !isConnected}>
-                {(isUploading || isLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isLoading ? (isPending ? 'Waiting for Confirmation...' : 'Confirming Transaction...') : isUploading ? 'Uploading to IPFS...' : 'Create Shipment On-Chain'}
+            <Button type="submit" className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isUploading || isPending || !file || !isConnected}>
+                {(isUploading || isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isPending ? 'Waiting for Confirmation...' : isUploading ? 'Uploading to IPFS...' : 'Create Shipment On-Chain'}
             </Button>
           </form>
         </Form>

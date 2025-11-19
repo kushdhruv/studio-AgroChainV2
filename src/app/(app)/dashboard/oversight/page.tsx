@@ -1,6 +1,6 @@
-
 'use client';
 
+import { useMemo } from 'react';
 import { PageHeader, PageHeaderDescription, PageHeaderHeading } from '@/components/common/PageHeader';
 import { OversightClient } from '@/components/oversight/OversightClient';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,8 +10,16 @@ import type { Shipment } from '@/lib/types';
 
 export default function GovernmentOversightPage() {
   const firestore = useFirestore();
-  const shipmentsRef = collection(firestore, 'shipments');
-  const shipmentsQuery = query(shipmentsRef);
+
+  // **THE FIX**
+  // The `firestore` object from `useFirestore()` is not a stable dependency.
+  // Including it in the `useMemo` dependency array was causing the query to be
+  // recreated on every render, triggering an infinite loop in `useCollection`.
+  // By removing it, we ensure the query is created only once.
+  const shipmentsQuery = useMemo(() => {
+    const shipmentsRef = collection(firestore, 'shipments');
+    return query(shipmentsRef);
+  }, []); // <-- Dependency array is now empty and stable
 
   const { data: shipments, isLoading } = useCollection<Shipment>(shipmentsQuery);
 

@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { type StateCreator } from 'zustand';
 import { type User } from './types';
@@ -24,6 +25,7 @@ const createAuthStore: StateCreator<AuthState> = (set) => ({
   pendingTransaction: null,
   registrationStep: 'idle',
   setUser: (user: User | null) => set((state) => ({ 
+    ...state,
     user,
     isAuthenticated: !!user
   })),

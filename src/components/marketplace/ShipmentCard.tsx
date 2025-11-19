@@ -6,7 +6,7 @@ import type { Shipment } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MapPin, ArrowRight, Truck } from 'lucide-react';
+import { MapPin, ArrowRight, Truck, Weight } from 'lucide-react';
 import { useState } from 'react';
 
 const statusColors: { [key in Shipment['status']]: string } = {
@@ -16,6 +16,7 @@ const statusColors: { [key in Shipment['status']]: string } = {
   'ReadyForPickup': "bg-blue-100 text-blue-800 border-blue-300",
   'In-Transit': "bg-indigo-100 text-indigo-800 border-indigo-300",
   'Delivered': "bg-green-100 text-green-800 border-green-300",
+  'Verified': "bg-emerald-100 text-emerald-800 border-emerald-300",
   'Cancelled': "bg-red-100 text-red-800 border-red-300",
   'Disputed': "bg-purple-100 text-purple-800 border-purple-300",
 };
@@ -80,6 +81,23 @@ export function ShipmentCard({ shipment }: { shipment: Shipment }) {
             <span>In-transit with {shipment.transporterId}</span>
           </div>
         )}
+
+        {shipment.weighments && shipment.weighments.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-dashed">
+                <h4 className="font-headline text-md font-semibold mb-2 flex items-center">
+                    <Weight className="h-5 w-5 mr-2 text-primary"/> Verified Weighments
+                </h4>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                    {shipment.weighments.map((w, index) => (
+                        <li key={index} className="flex justify-between">
+                            <span>{w.weight} kg</span>
+                            <span className="text-xs">({new Date(w.timestamp).toLocaleDateString()})</span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        )}
+
       </CardContent>
 
       <CardFooter className="p-4 bg-secondary/50 flex justify-between items-center">

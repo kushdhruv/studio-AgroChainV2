@@ -79,7 +79,6 @@ export const RegistrationABI = [
     }],
     "outputs": [],
     "stateMutability": "nonpayable",
-    "note": "Can only be called by accounts with ORACLE role"
   },
   {
     "type": "function",

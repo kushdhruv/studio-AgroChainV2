@@ -6,6 +6,7 @@ import { Firestore } from 'firebase/firestore';
 import { Auth, User, onAuthStateChanged } from 'firebase/auth';
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener'
 import type { User as AppUser } from '@/lib/types';
+import { useAuthState } from '@/lib/auth-state';
 
 interface FirebaseProviderProps {
   children: ReactNode;
@@ -67,20 +68,24 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     isUserLoading: true, // Start loading until first auth event
     userError: null,
   });
+  const { setUser } = useAuthState();
 
-  // Effect to subscribe to Firebase auth state changes and also check for oracle "session"
+  // Effect to subscribe to Firebase auth state changes and also check for wallet login sessions
   useEffect(() => {
-    // Check for oracle user in localStorage first
-    const oracleUserJson = localStorage.getItem('user');
-    if (oracleUserJson) {
+    // Check for ANY user stored in localStorage first (wallet login, admin, or email/password)
+    const storedUserJson = localStorage.getItem('user');
+    if (storedUserJson) {
       try {
-        const oracleUser: AppUser = JSON.parse(oracleUserJson);
-        if (oracleUser.role === 'Oracle') {
-            setUserAuthState({ user: oracleUser, isUserLoading: false, userError: null });
-            return;
+        const storedUser: AppUser = JSON.parse(storedUserJson);
+        // Recognize ANY user that was stored in localStorage (Oracle, Admin, or email/password users)
+        // All login methods store users in localStorage with role and uid
+        if (storedUser.role && storedUser.uid) {
+            setUserAuthState({ user: storedUser, isUserLoading: false, userError: null });
+            setUser(storedUser);
+            return; // Return early if localStorage user exists - don't check Firebase Auth
         }
       } catch (e) {
-        console.error("Failed to parse oracle user from localStorage", e);
+        console.error("Failed to parse user from localStorage", e);
         localStorage.removeItem('user'); // Clear corrupted data
       }
     }
@@ -108,7 +113,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       }
     );
     return () => unsubscribe(); 
-  }, [auth]); 
+  }, [auth, setUser]); 
 
   const contextValue = useMemo((): FirebaseContextState => {
     const servicesAvailable = !!(firebaseApp && firestore && auth);

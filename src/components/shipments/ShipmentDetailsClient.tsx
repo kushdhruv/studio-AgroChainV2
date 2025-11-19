@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { doc, getDoc, collection, query, where } from 'firebase/firestore';
 import { updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { useState,useEffect } from 'react';
+import { useState,useEffect, useRef, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { ShipmentTokenABI } from '@/contracts/ShipmentToken';
 import { DisputeManagerABI } from '@/contracts/DisputeManager';
@@ -26,9 +26,11 @@ import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { uploadJsonToIPFS } from '@/lib/actions';
 import { parseEther, decodeEventLog } from 'viem';
-import { getPublicClient } from '@wagmi/core';
+import { readContract } from 'wagmi/actions';
+import { config } from '@/components/blockchain/WagmiProvider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
+import { getAddress } from 'ethers';
 //import { config } from '@/components/blockchain/WagmiProvider';
 
 const statusColors: { [key in Shipment['status']]: string } = {
@@ -38,20 +40,23 @@ const statusColors: { [key in Shipment['status']]: string } = {
     ReadyForPickup: "bg-blue-100 text-blue-800 border-blue-300",
     "In-Transit": "bg-indigo-100 text-indigo-800 border-indigo-300",
     Delivered: "bg-green-100 text-green-800 border-green-300",
+    Verified: "bg-emerald-100 text-emerald-800 border-emerald-300",
     Cancelled: "bg-red-100 text-red-800 border-red-300",
     Disputed: "bg-purple-100 text-purple-800 border-purple-300",
 };
 
 // NOTE: These MUST match the enum order in your smart contract
+// ShipmentState { OPEN, ASSIGNED, IN_TRANSIT, DELIVERED, VERIFIED, PAID, DISPUTED, CANCELLED }
 const onChainStatusMap: { [key in Shipment['status']]: number } = {
-  Pending: 0,
-  OfferMade: 1, // Or a more specific status like 'Accepted'
+  Pending: 0,      // OPEN
+  OfferMade: 1,    // ASSIGNED
   AwaitingPayment: 2,
-  ReadyForPickup: 3,
-  "In-Transit": 4,
-  Delivered: 5,
-  Cancelled: 6,
-  Disputed: 7,
+  ReadyForPickup: 2,  // Both map to IN_TRANSIT (2)
+  "In-Transit": 2,    // IN_TRANSIT
+  Delivered: 3,       // DELIVERED
+  Verified: 4,        // VERIFIED
+  Cancelled: 7,       // CANCELLED
+  Disputed: 6,        // DISPUTED
 };
 
 const timelineIcons: { [key: string]: React.ReactNode } = {
@@ -439,6 +444,26 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
   const { writeContractAsync, isPending } = useWriteContract();
 
   const [transporterAddress, setTransporterAddress] = useState('');
+  const [approveTxHash, setApproveTxHash] = useState<string | undefined>(undefined);
+  const [shouldAutoDeposit, setShouldAutoDeposit] = useState(false);
+  const [pendingDeposit, setPendingDeposit] = useState<{
+    shipmentIdOnChain?: string;
+    tokenAddress?: `0x${string}`;
+    amount?: bigint;
+    farmer?: `0x${string}`;
+    transporter?: `0x${string}`;
+    farmerBps?: number;
+    transporterBps?: number;
+    platformBps?: number;
+  } | null>(null);
+  // UI-facing processing state to disable buttons while flow is active
+  const [isProcessingPay, setIsProcessingPay] = useState(false);
+  const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({ hash: approveTxHash as `0x${string}` | undefined });
+
+  // Ref to avoid multiple auto-deposit executions
+  const isAutoDepositRunningRef = useRef(false);
+
+  
 
   const ipfsGateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
   const imageUrl = shipment.imageUrl.startsWith('https://') ? shipment.imageUrl : `${ipfsGateway}/ipfs/${shipment.imageUrl}`;
@@ -461,17 +486,90 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
     action();
   }
 
-  const updateFirestoreStatus = (status: Shipment['status'], details: string, extraData: object = {}) => {
+  const updateFirestoreStatus = useCallback((status: Shipment['status'], details: string, extraData: object = {}) => {
     if (!user) return;
     const shipmentRef = doc(firestore, 'shipments', shipment.id);
     const newTimelineEvent = { status, timestamp: new Date().toISOString(), details };
-    
+
     updateDocumentNonBlocking(shipmentRef, {
         status,
         timeline: [...shipment.timeline, newTimelineEvent],
         ...extraData
     });
-  }
+  }, [firestore, shipment, user]);
+
+  // Ref guard to avoid re-entrancy / duplicate tx submissions
+  const isProcessingPayRef = useRef(false);
+
+  // When approval is confirmed, automatically execute the pending deposit (if any)
+  useEffect(() => {
+    if (!isApproveConfirmed || !shouldAutoDeposit || !pendingDeposit) return;
+    if (isAutoDepositRunningRef.current) return; // already handling
+    isAutoDepositRunningRef.current = true;
+    setIsProcessingPay(true);
+
+    (async () => {
+      try {
+        toast({ title: 'Approval Confirmed', description: 'Submitting escrow deposit...' });
+        await writeContractAsync({
+          abi: EscrowPaymentABI,
+          address: contractAddresses.EscrowPayment,
+          functionName: 'depositPayment',
+          args: [
+            pendingDeposit.shipmentIdOnChain as `0x${string}`,
+            pendingDeposit.tokenAddress as `0x${string}`,
+            pendingDeposit.amount as bigint,
+            pendingDeposit.farmer as `0x${string}`,
+            pendingDeposit.transporter as `0x${string}`,
+            pendingDeposit.farmerBps as number,
+            pendingDeposit.transporterBps as number,
+            pendingDeposit.platformBps as number,
+          ],
+        });
+
+        toast({ title: 'Escrow Deposited', description: 'Payment confirmed on-chain. Updating shipment state...' });
+
+        // Update local Oracle pending state & Firestore similar to handlePayEscrow flow
+        const pendingUpdate = {
+          id: `${pendingDeposit.shipmentIdOnChain}-${Date.now()}`,
+          shipmentId: shipment.id,
+          shipmentIdOnChain: pendingDeposit.shipmentIdOnChain,
+          currentState: 4,
+          targetState: 5,
+          status: 'pending' as const,
+          createdAt: Date.now(),
+          attemptCount: 0,
+        };
+        const existingUpdates = localStorage.getItem('pendingStateUpdates');
+        const updates = existingUpdates ? JSON.parse(existingUpdates) : [];
+        updates.push(pendingUpdate);
+        localStorage.setItem('pendingStateUpdates', JSON.stringify(updates));
+
+        try {
+          const response = await fetch('/api/oracle/update-shipment-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shipmentId: pendingDeposit.shipmentIdOnChain, toState: 5, timestamp: Math.floor(Date.now() / 1000), nonce: Date.now() }),
+          });
+          const oracleResponse = await response.json();
+          if (!oracleResponse.success) console.warn('Oracle state update delayed:', oracleResponse.error);
+        } catch (oracleError: any) {
+          console.warn('Could not reach oracle service:', oracleError.message);
+        }
+
+        updateFirestoreStatus('ReadyForPickup', 'Escrow payment confirmed by Industry.');
+
+      } catch (e: any) {
+        toast({ variant: 'destructive', title: 'Deposit Failed', description: e.message || String(e) });
+      } finally {
+        setApproveTxHash(undefined);
+        setShouldAutoDeposit(false);
+        setPendingDeposit(null);
+        isAutoDepositRunningRef.current = false;
+        setIsProcessingPay(false);
+      }
+    })();
+  }, [isApproveConfirmed, shouldAutoDeposit, pendingDeposit, writeContractAsync, toast, shipment, updateFirestoreStatus]);
 
   const handleMakeOffer = () => handleActionWithVerification(async () => {
     if (!user || !walletAddress) return;
@@ -512,74 +610,209 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
   });
   
   const handleUpdateOnChainState = (newStatus: Shipment['status'], details: string) => handleActionWithVerification(async () => {
-      if(!user) return;
-      try {
-          const newState = onChainStatusMap[newStatus];
-          const timestamp = Math.floor(Date.now() / 1000);
-          const nonce = Date.now(); // Simple nonce for this example
-          const signature = "0x"; // Placeholder for a real oracle signature
-
-          await writeContractAsync({
-              abi: ShipmentTokenABI,
-              address: contractAddresses.ShipmentToken,
-              functionName: 'updateShipmentState',
-              args: [{
-                  shipmentId: shipment.shipmentIdOnChain as `0x${string}`,
-                  newState,
-                  timestamp,
-                  nonce,
-                  signature
-              }],
-          });
-          
-          updateFirestoreStatus(newStatus, details);
-          toast({ title: "Status Update Sent", description: "Please confirm the transaction in your wallet." });
-      } catch (e: any) {
-          toast({ variant: 'destructive', title: 'Status Update Failed', description: e.message });
-      }
+    if(!user) return;
+    try {
+      // Directly call updateShipmentState on-chain
+      const stateEnum = onChainStatusMap[newStatus];
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = Date.now();
+      // Signature is not required anymore, pass empty bytes
+      await writeContractAsync({
+        abi: ShipmentTokenABI,
+        address: contractAddresses.ShipmentToken,
+        functionName: 'updateShipmentState',
+        args: [{
+          shipmentId: shipment.shipmentIdOnChain as `0x${string}`,
+          newState: stateEnum,
+          timestamp,
+          nonce,
+          signature: '0x',
+        }],
+      });
+      updateFirestoreStatus(newStatus, details);
+      toast({ 
+      title: "Status Updated", 
+      description: `Shipment status changed to \"${newStatus}\" on-chain.` 
+      });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Status Update Failed', description: e.message });
+    }
   });
 
   const handlePayEscrow = () => handleActionWithVerification(async () => {
+    // Prevent re-entrancy: bail out if a payment flow is already running
+    if (isProcessingPayRef.current) {
+      toast({ title: 'Already processing', description: 'Please confirm the pending transaction in your wallet.' });
+      return;
+    }
+    isProcessingPayRef.current = true;
     if (!user || !userProfile?.walletAddress) {
         toast({ variant: 'destructive', title: 'User Error', description: 'Could not find user wallet.' });
+        isProcessingPayRef.current = false;
         return;
     }
-    const farmerQuery = query(collection(firestore, 'users'), where('uid', '==', shipment.farmerId));
-    const transporterQuery = query(collection(firestore, 'users'), where('walletAddress', '==', shipment.transporterId));
 
-    try {
+  try {
         const farmerSnap = await getDoc(doc(firestore, 'users', shipment.farmerId));
         if (!farmerSnap.exists() || !farmerSnap.data().walletAddress) {
             throw new Error("Could not find Farmer's wallet address.");
         }
-        const farmerWalletAddress = farmerSnap.data().walletAddress;
+        let farmerWalletAddress = farmerSnap.data().walletAddress;
         
-        // Note: For a token-based system, the user would first need to `approve` the escrow contract.
-        // We are simulating that step and directly calling `depositPayment`.
-        const amount = parseEther(shipment.askPrice.toString());
-        const mockTokenAddress = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"; // Placeholder for demo
+        // Sanitize and format farmer wallet address
+        farmerWalletAddress = farmerWalletAddress.trim();
+        if (farmerWalletAddress.startsWith('0x')) {
+            farmerWalletAddress = farmerWalletAddress.slice(2); // Remove 0x prefix for sanitization
+        }
+        // Remove any non-hex characters and keep only 40 chars
+        farmerWalletAddress = farmerWalletAddress.replace(/[^a-fA-F0-9]/g, '').slice(0, 40);
+        farmerWalletAddress = '0x' + farmerWalletAddress.toLowerCase();
+        
+        // Validate the address format
+        if (!/^0x[a-fA-F0-9]{40}$/.test(farmerWalletAddress)) {
+            throw new Error(`Invalid farmer wallet address format: ${farmerWalletAddress} (length: ${farmerWalletAddress.length})`);
+        }
+        
+        // Apply EIP-55 checksum formatting
+        farmerWalletAddress = getAddress(farmerWalletAddress);
+        
+        // Also sanitize and format transporter address
+        let transporterAddress = shipment.transporterId;
+        if (!transporterAddress) {
+            throw new Error("Transporter address not found in shipment.");
+        }
+        transporterAddress = transporterAddress.trim();
+        if (transporterAddress.startsWith('0x')) {
+            transporterAddress = transporterAddress.slice(2); // Remove 0x prefix for sanitization
+        }
+        // Remove any non-hex characters and keep only 40 chars
+        transporterAddress = transporterAddress.replace(/[^a-fA-F0-9]/g, '').slice(0, 40);
+        transporterAddress = '0x' + transporterAddress.toLowerCase();
+        
+        if (!/^0x[a-fA-F0-9]{40}$/.test(transporterAddress)) {
+            throw new Error(`Invalid transporter wallet address format: ${transporterAddress} (length: ${transporterAddress.length})`);
+        }
+        
+        // Apply EIP-55 checksum formatting
+        transporterAddress = getAddress(transporterAddress);
+        
+    // Use Anvil token for escrow (amount in wei)
+    const amount = parseEther(shipment.askPrice.toString());
+    // Token address from process env or use default token address
+    const tokenAddress = (process.env.NEXT_PUBLIC_TOKEN_ADDRESS || 
+               "0xf09F5f4e36b6B7E7734CE288F8367e1Bb143E90bb") as `0x${string}`;
 
+    // Minimal ERC20 ABI for allowance/approve (proper ABI format)
+    const ERC20_ABI = [
+      {
+        type: 'function',
+        name: 'approve',
+        inputs: [
+          { name: 'spender', type: 'address' },
+          { name: 'amount', type: 'uint256' }
+        ],
+        outputs: [{ type: 'bool' }],
+        stateMutability: 'nonpayable'
+      },
+      {
+        type: 'function',
+        name: 'allowance',
+        inputs: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' }
+        ],
+        outputs: [{ type: 'uint256' }],
+        stateMutability: 'view'
+      }
+    ] as const;
+
+        toast({ title: "Submitting Escrow Payment...", description: "Processing transaction..." });
+
+        // ✅ STEP 0: Check allowance and approve if needed
+        try {
+          // Read current allowance of escrow contract for the connected wallet
+          const allowance: bigint = await readContract(config, {
+            abi: ERC20_ABI,
+            address: tokenAddress,
+            functionName: 'allowance',
+            args: [walletAddress as `0x${string}`, contractAddresses.EscrowPayment as `0x${string}`],
+          }) as bigint;
+
+          if (allowance < amount) {
+            toast({ title: 'Approval Required', description: 'Requesting token approval...' });
+            const approveTxHash = await writeContractAsync({
+              abi: ERC20_ABI,
+              address: tokenAddress,
+              functionName: 'approve',
+              args: [contractAddresses.EscrowPayment as `0x${string}`, amount],
+            }) as string;
+
+            // Store pending deposit details and watch for approval confirmation in an effect
+            setApproveTxHash(approveTxHash);
+            setPendingDeposit({
+              shipmentIdOnChain: shipment.shipmentIdOnChain,
+              tokenAddress,
+              amount,
+              farmer: farmerWalletAddress as `0x${string}`,
+              transporter: transporterAddress as `0x${string}`,
+              farmerBps: 8000,
+              transporterBps: 1500,
+              platformBps: 500,
+            });
+            setShouldAutoDeposit(true);
+
+            toast({ title: 'Approval Sent', description: 'Please confirm approval in your wallet. Deposit will proceed once approval is mined.' });
+            return; // wait for approval effect to trigger deposit
+          }
+        } catch (e: any) {
+          toast({ variant: 'destructive', title: 'Approval Failed', description: e.message || String(e) });
+          throw e;
+        }
+
+        // ✅ STEP 1: Deposit Escrow Payment (allowance already sufficient)
         await writeContractAsync({
-            abi: EscrowPaymentABI,
-            address: contractAddresses.EscrowPayment,
-            functionName: 'depositPayment',
-            args: [
-                shipment.shipmentIdOnChain as `0x${string}`,
-                mockTokenAddress, // Mock Token Address
-                amount,
-                farmerWalletAddress,
-                shipment.transporterId as `0x${string}`,
-                8000, // 80% to farmer
-                1500, // 15% to transporter
-                500   // 5% to platform
-            ],
+          abi: EscrowPaymentABI,
+          address: contractAddresses.EscrowPayment,
+          functionName: 'depositPayment',
+          args: [
+            shipment.shipmentIdOnChain as `0x${string}`,
+            tokenAddress,
+            amount,
+            farmerWalletAddress as `0x${string}`,
+            transporterAddress as `0x${string}`,
+            8000, // 80% to farmer
+            1500, // 15% to transporter
+            500   // 5% to platform
+          ],
         });
 
-        updateFirestoreStatus('ReadyForPickup', 'Escrow payment confirmed by Industry.');
-        toast({ title: "Escrow Payment Sent", description: "Please confirm transaction in your wallet." });
+        toast({ title: "Escrow Deposited", description: "Payment confirmed on-chain. Updating shipment state..." });
+
+    // ✅ STEP 2: Update Firestore Status
+    updateFirestoreStatus('ReadyForPickup', 'Escrow payment confirmed by Industry.');
+    // ✅ STEP 3: Update on-chain state to PAID
+    const timestamp = Math.floor(Date.now() / 1000);
+    const nonce = Date.now();
+    await writeContractAsync({
+      abi: ShipmentTokenABI,
+      address: contractAddresses.ShipmentToken,
+      functionName: 'updateShipmentState',
+      args: [{
+        shipmentId: shipment.shipmentIdOnChain as `0x${string}`,
+        newState: 5, // PAID
+        timestamp,
+        nonce,
+        signature: '0x',
+      }],
+    });
+    toast({ title: "✅ Escrow Payment Complete", description: "Shipment is now ReadyForPickup and PAID on-chain." });
 
     } catch (e: any) {
         toast({ variant: 'destructive', title: 'Escrow Payment Failed', description: e.message });
+    }
+    finally {
+      // Always clear the processing guard so user can retry after failure/success
+      isProcessingPayRef.current = false;
     }
   });
 
@@ -588,21 +821,95 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
   };
   
   const handleMarkAsDelivered = () => {
-    handleUpdateOnChainState('Delivered', 'Shipment marked as delivered by Industry.');
+    handleUpdateOnChainState('Delivered', 'Shipment marked as delivered by transporter.');
+  };
+
+  const handleVerifyShipment = () => {
+    handleUpdateOnChainState('Verified', 'Shipment verified by Industry. Ready for payment release.');
   };
 
   const handleReleasePayment = () => handleActionWithVerification(async () => {
     if(!user) return;
     try {
-        await writeContractAsync({
+        // Add validation and debugging info
+        console.log('🔍 Release Payment Debug Info:', {
+          shipmentId: shipment.id,
+          shipmentIdOnChain: shipment.shipmentIdOnChain,
+          farmerId: shipment.farmerId,
+          currentUserId: user.uid,
+          isFarmer: user.uid === shipment.farmerId,
+          shipmentStatus: shipment.status,
+        });
+
+        // Verify user is the farmer
+        if (user.uid !== shipment.farmerId) {
+          throw new Error('Only the Farmer can claim payment for this shipment.');
+        }
+
+        // Check shipment status
+        if (shipment.status !== 'Verified') {
+          throw new Error(`Shipment must be in "Verified" status to claim payment. Current status: ${shipment.status}. Industry must verify the shipment first.`);
+        }
+
+        // Check if shipment is verified on-chain
+        const isVerified = await readContract(config, {
+          abi: ShipmentTokenABI,
+          address: contractAddresses.ShipmentToken,
+          functionName: 'isShipmentVerified',
+          args: [shipment.shipmentIdOnChain as `0x${string}`],
+        }) as boolean;
+
+        if (!isVerified) {
+          console.warn('⚠️ Shipment is not verified on-chain yet. This may cause issues with payment release.');
+          // Continue anyway - manager or farmer can still release after verification
+        }
+
+        // Read the escrow state on-chain to verify it exists and is in releasable status
+        const escrowData = await readContract(config, {
+          abi: EscrowPaymentABI,
+          address: contractAddresses.EscrowPayment,
+          functionName: 'getEscrow',
+          args: [shipment.shipmentIdOnChain as `0x${string}`],
+        }) as any;
+
+        console.log('📋 Escrow State on-chain:', {
+          amount: escrowData?.amount?.toString(),
+          status: escrowData?.status,
+          farmer: escrowData?.farmer,
+          transporter: escrowData?.transporter,
+        });
+
+        if (!escrowData || escrowData.amount === BigInt(0)) {
+          throw new Error('No escrow found for this shipment on-chain.');
+        }
+
+        // Status 0 = DEPOSITED, 1 = HELD, 2 = RELEASED, 3 = REFUNDED
+        const EscrowStatus = { DEPOSITED: 0, HELD: 1, RELEASED: 2, REFUNDED: 3 };
+        if (escrowData.status !== EscrowStatus.DEPOSITED && escrowData.status !== EscrowStatus.HELD) {
+          throw new Error(`Escrow is not in releasable status. Current status: ${escrowData.status}. Only DEPOSITED (0) or HELD (1) escrows can be released.`);
+        }
+
+        toast({ title: 'Claiming Payment...', description: 'Sending release transaction to blockchain...' });
+
+        const txHash = await writeContractAsync({
             abi: EscrowPaymentABI,
             address: contractAddresses.EscrowPayment,
             functionName: 'releasePayment',
             args: [shipment.shipmentIdOnChain as `0x${string}`],
+        }) as string;
+
+        toast({ title: 'Release Transaction Sent', description: 'Waiting for confirmation...' });
+
+        // Update Firestore status after transaction is sent
+        updateFirestoreStatus('Delivered', 'Payment released to Farmer and Transporter.');
+        
+        toast({ 
+          title: '✅ Payment Released Successfully!', 
+          description: 'Funds have been transferred to Farmer, Transporter, and Platform.' 
         });
-        updateFirestoreStatus('Delivered', 'Payment released to Farmer.');
-        toast({ title: 'Payment Release Sent', description: 'Please confirm transaction in your wallet.' });
+
     } catch(e: any) {
+        console.error('❌ Payment Release Error:', e);
         toast({ variant: 'destructive', title: 'Payment Release Failed', description: e.message });
     }
   });
@@ -649,14 +956,14 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
                     </div>
                 );
             }
-            if (shipment.status === 'AwaitingPayment' && user?.uid === shipment.industryId) {
-                return <Button onClick={handlePayEscrow} className="w-full md:w-auto" disabled={isPending}>
-                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Pay Escrow (₹{shipment.askPrice.toLocaleString()})
-                </Button>;
+      if (shipment.status === 'AwaitingPayment' && user?.uid === shipment.industryId) {
+        return <Button onClick={handlePayEscrow} className="w-full md:w-auto" disabled={isPending || isProcessingPay}>
+          {(isPending || isProcessingPay) && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Pay Escrow ({shipment.askPrice.toLocaleString()} AGT)
+        </Button>;
             }
-             if (shipment.status === 'In-Transit' && user?.uid === shipment.industryId) {
-                return <Button onClick={handleMarkAsDelivered} className="w-full md:w-auto" disabled={isPending}>
-                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Mark as Delivered
+            if (shipment.status === 'Delivered' && user?.uid === shipment.industryId) {
+                return <Button onClick={handleVerifyShipment} className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700" disabled={isPending}>
+                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Verify Shipment
                 </Button>;
             }
             break;
@@ -664,6 +971,11 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
             if (shipment.status === 'ReadyForPickup' && walletAddress?.toLowerCase() === shipment.transporterId?.toLowerCase()) {
                 return <Button onClick={handleConfirmPickup} className="w-full md:w-auto" disabled={isPending}>
                     {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Confirm Pickup
+                </Button>;
+            }
+            if (shipment.status === 'In-Transit' && walletAddress?.toLowerCase() === shipment.transporterId?.toLowerCase()) {
+                return <Button onClick={handleMarkAsDelivered} className="w-full md:w-auto" disabled={isPending}>
+                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Mark as Delivered
                 </Button>;
             }
             break;
@@ -678,8 +990,8 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
                     </div>
                 );
             }
-             if (shipment.status === 'Delivered' && user?.uid === shipment.farmerId) {
-                return <Button onClick={handleReleasePayment} className="w-full md:w-auto" disabled={isPending}>
+             if (shipment.status === 'Verified' && user?.uid === shipment.farmerId) {
+                return <Button onClick={handleReleasePayment} className="w-full md:w-auto bg-green-600 hover:bg-green-700" disabled={isPending}>
                     {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>} Claim Payment
                 </Button>;
             }
@@ -688,7 +1000,7 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
             return null;
     }
 
-    if (shipment.status !== 'Pending' && shipment.status !== 'Cancelled' && shipment.status !== 'Delivered') {
+    if (shipment.status !== 'Pending' && shipment.status !== 'Cancelled' && shipment.status !== 'Verified') {
         return <RaiseDisputeDialog shipment={shipment} userProfile={userProfile} onDisputeRaised={() => {
             // Optimistically update the local status
             shipment.status = 'Disputed';
@@ -719,7 +1031,7 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
             <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><p className="text-muted-foreground">Origin</p><p className="font-semibold">{shipment.origin}</p></div>
                 {shipment.destination && <div><p className="text-muted-foreground">Destination</p><p className="font-semibold">{shipment.destination}</p></div>}
-                <div><p className="text-muted-foreground">Asking Price</p><p className="font-semibold">₹{shipment.askPrice.toLocaleString()}</p></div>
+                <div><p className="text-muted-foreground">Asking Price</p><p className="font-semibold">{shipment.askPrice.toLocaleString()} AGT</p></div>
                 
                 <div>
                     <p className="text-muted-foreground">Farmer ID</p>

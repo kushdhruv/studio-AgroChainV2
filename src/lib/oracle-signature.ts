@@ -17,36 +17,46 @@ import { keccak256, encodeAbiParameters, parseAbiParameters, hashMessage, toByte
 // Extend Window interface for ethereum
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
+    ethereum?: any;
   }
 }
 
+// FIX: Changed shipmentId to string to be more flexible.
 export interface WeighmentSignatureParams {
   chainId: bigint;
-  shipmentId: `0x${string}`;
+  shipmentId: string;
   weighKg: bigint;
   weighHash: string;
   timestamp: bigint;
   nonce: bigint;
 }
 
+// FIX: Changed shipmentId to string to be more flexible.
 export interface ProofSignatureParams {
   chainId: bigint;
-  shipmentId: `0x${string}`;
+  shipmentId: string;
   proofType: number;
   proofHash: string;
   timestamp: bigint;
   nonce: bigint;
 }
 
+// FIX: Changed shipmentId to string to be more flexible.
 export interface StateSignatureParams {
   chainId: bigint;
-  shipmentId: `0x${string}`;
+  shipmentId: string;
   newState: number;
   timestamp: bigint;
   nonce: bigint;
+}
+
+export interface KycAttestationSignatureParams {
+    chainId: bigint;
+    participant: Address;
+    role: number;
+    metaDataHash: string;
+    timestamp: bigint;
+    nonce: bigint;
 }
 
 /**
@@ -70,7 +80,7 @@ export function generateWeighmentPayloadHash(params: WeighmentSignatureParams): 
     parseAbiParameters('uint256 chainId, bytes32 shipmentId, uint256 weighKg, bytes32 weighHash, uint256 timestamp, uint256 nonce'),
     [
       params.chainId,
-      params.shipmentId as `0x${string}`,
+      params.shipmentId as `0x${string}`, // Cast to the required type internally
       params.weighKg,
       weighHashBytes,
       params.timestamp,
@@ -102,7 +112,7 @@ export function generateProofPayloadHash(params: ProofSignatureParams): `0x${str
     parseAbiParameters('uint256 chainId, bytes32 shipmentId, uint8 proofType, bytes32 proofHash, uint256 timestamp, uint256 nonce'),
     [
       params.chainId,
-      params.shipmentId as `0x${string}`,
+      params.shipmentId as `0x${string}`, // Cast to the required type internally
       Number(params.proofType),
       proofHashBytes,
       params.timestamp,
@@ -129,7 +139,7 @@ export function generateStatePayloadHash(params: StateSignatureParams): `0x${str
     parseAbiParameters('uint256 chainId, bytes32 shipmentId, uint8 newState, uint256 timestamp, uint256 nonce'),
     [
       params.chainId,
-      params.shipmentId as `0x${string}`,
+      params.shipmentId as `0x${string}`, // Cast to the required type internally
       Number(params.newState),
       params.timestamp,
       params.nonce,
@@ -138,6 +148,29 @@ export function generateStatePayloadHash(params: StateSignatureParams): `0x${str
 
   return keccak256(encoded);
 }
+
+/**
+ * Generate the payload hash for KYC attestation.
+ * This should match the hashing logic in the Registration contract for verifying the signature.
+ */
+export function generateKycAttestationPayloadHash(params: KycAttestationSignatureParams): `0x${string}` {
+    const metaDataHashBytes = keccak256(toBytes(params.metaDataHash));
+
+    const encoded = encodeAbiParameters(
+        parseAbiParameters('uint256 chainId, address participant, uint8 role, bytes32 metaDataHash, uint256 timestamp, uint256 nonce'),
+        [
+            params.chainId,
+            params.participant,
+            params.role,
+            metaDataHashBytes,
+            params.timestamp,
+            params.nonce,
+        ]
+    );
+
+    return keccak256(encoded);
+}
+
 
 /**
  * Sign a payload hash using wallet's personal_sign
@@ -212,4 +245,3 @@ export async function signPayloadHashWithBackend(
   const { signature } = await response.json();
   return signature as `0x${string}`;
 }
-

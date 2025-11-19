@@ -38,28 +38,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const firestore = useFirestore();
   const router = useRouter();
 
-const userProfileRef = useMemoFirebase(() => {
-  if (user && user.uid) {
-    return doc(firestore, 'users', user.uid);
-  }
-  return null;
-}, [firestore, user]);
+  // Check if user is a wallet-based admin (stored in localStorage)
+  // AppUser has role property, Firebase User does not
+  const isWalletAdmin = user && 'role' in user && (user as AppUser).role === 'Admin';
 
+  const userProfileRef = useMemoFirebase(() => {
+    // Only try to fetch from Firestore if NOT a wallet admin
+    // Wallet admins have their profile in memory already
+    if (user && user.uid && !isWalletAdmin) {
+      return doc(firestore, 'users', user.uid);
+    }
+    return null;
+  }, [firestore, user, isWalletAdmin]);
 
   const { data: userProfile, isLoading: isProfileLoading } = useDoc<AppUser>(userProfileRef);
-    useEffect(() => {
-  if (user && !isProfileLoading && !userProfile) {
-    const defaultProfile = {
-      uid: user.uid,
-      role: 'Admin',
-      walletAddress: user.uid,
-      name: 'Admin',
-      email: '',
-      createdAt: new Date().toISOString(),
-    };
-    setDoc(doc(firestore, 'users', user.uid), defaultProfile);
-  }
-}, [user, userProfile, isProfileLoading, firestore]);
+  
+  // For wallet admins, use the user object directly as the profile
+  const effectiveProfile = isWalletAdmin ? (user as AppUser) : userProfile;
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -68,15 +63,15 @@ const userProfileRef = useMemoFirebase(() => {
   }, [user, isUserLoading, router]);
 
   useEffect(() => {
-    if (userProfile && userProfile.role !== 'Admin') {
+    if (effectiveProfile && effectiveProfile.role !== 'Admin') {
         // If the user is logged in but not an admin, kick them out.
         router.replace('/dashboard');
     }
-  }, [userProfile, router]);
+  }, [effectiveProfile, router]);
 
-  const isLoading = isUserLoading || isProfileLoading;
+  const isLoading = isUserLoading || (!isWalletAdmin && isProfileLoading);
   
-  if (isLoading || !userProfile) {
+  if (isLoading || !effectiveProfile) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -91,7 +86,7 @@ const userProfileRef = useMemoFirebase(() => {
   }
 
   // Final check to ensure we don't render for non-admins
-  if (userProfile.role !== 'Admin') {
+  if (effectiveProfile.role !== 'Admin') {
       return (
          <div className="flex h-screen w-full items-center justify-center bg-background text-center">
             <div>
@@ -105,7 +100,7 @@ const userProfileRef = useMemoFirebase(() => {
       );
   }
 
-const safeUserProfile = userProfile ? JSON.parse(JSON.stringify(userProfile)) : null;
+const safeUserProfile = effectiveProfile ? JSON.parse(JSON.stringify(effectiveProfile)) : null;
   return (
     <div className="flex min-h-screen flex-col">
         <AdminHeader user={safeUserProfile} />

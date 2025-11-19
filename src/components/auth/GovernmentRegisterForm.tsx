@@ -15,8 +15,8 @@ import { useAuth, useFirestore } from "@/firebase";
 import { createUserWithEmailAndPassword, fetchSignInMethodsForEmail } from "firebase/auth";
 import { doc, setDoc, collection } from "firebase/firestore";
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
-import { useAccount, useWriteContract } from 'wagmi';
-import { useState } from "react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { RegistrationABI } from "@/contracts/Registration";
 import type { Role } from "@/lib/types";
@@ -48,8 +48,9 @@ export function GovernmentRegisterForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { address, isConnected } = useAccount();
-  const { writeContractAsync, isPending } = useWriteContract();
-  
+  const { data: hash, writeContract, isPending, error: writeError } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed, error: confirmError } = useWaitForTransactionReceipt({ hash });
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -59,6 +60,70 @@ export function GovernmentRegisterForm() {
       confirmPassword: "",
     },
   });
+
+  // Handle transaction confirmation
+  useEffect(() => {
+    async function handleRegistrationSuccess() {
+      if (isConfirmed) {
+        const values = form.getValues();
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+          const user = userCredential.user;
+
+          // **KEY FIX:** Store wallet address in lowercase and use it as the uid
+          const normalizedAddress = address ? address.toLowerCase() : null;
+          const firestoreUid = normalizedAddress || user.uid;
+
+          const userDocRef = doc(firestore, "users", firestoreUid);
+          await setDoc(userDocRef, {
+            uid: firestoreUid,
+            name: values.authorityName,
+            email: values.email,
+            role: 'Government',
+            kycVerified: false,
+            details: {},
+            avatarUrl: `https://i.pravatar.cc/150?u=${values.email}`,
+            walletAddress: normalizedAddress,
+            registeredAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+          });
+
+          toast({
+            title: "Registration Complete!",
+            description: "Your account has been created. You can now log in.",
+          });
+          router.push("/login");
+
+        } catch (error: any) {
+          if (error.code === "auth/email-already-in-use") {
+            toast({
+              variant: "destructive",
+              title: "Email Already Registered",
+              description: "This email is already in use. Please log in or use a different email address.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Registration Failed",
+              description: "Failed to create your profile after the transaction. Please contact support.",
+            });
+          }
+        }
+      }
+    }
+    handleRegistrationSuccess();
+  }, [isConfirmed, auth, firestore, address, form, router, toast]);
+
+  useEffect(() => {
+    if (writeError || confirmError) {
+      const error = writeError || confirmError;
+      toast({
+        variant: "destructive",
+        title: "On-Chain Registration Failed",
+        description: error?.message?.split('\n')[0] || "The transaction was rejected or failed.",
+      });
+    }
+  }, [writeError, confirmError, toast]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
      if (!isConnected || !address) {
@@ -77,56 +142,19 @@ export function GovernmentRegisterForm() {
         return;
       }
 
-      setIsSubmitting(true);
-      
-      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // small delay to ensure user creation
-      const user = userCredential.user;
-
       const roleId = onChainRoleMap['Government'];
       if (roleId === undefined) throw new Error("Invalid role for on-chain registration");
-      const metadata = JSON.stringify({ name: values.authorityName, firestoreId: user.uid });
-      
-      await writeContractAsync({
+      const metadata = JSON.stringify({ name: values.authorityName, email: values.email, timestamp: new Date().toISOString() });
+
+      writeContract({
         abi: RegistrationABI,
-        address: contractAddresses.Registration,
+        address: contractAddresses.Registration as `0x${string}`,
         functionName: 'registerParticipant',
         args: [roleId, metadata],
       });
 
-      const userDocRef = doc(firestore, "users", user.uid);
-      await setDoc(userDocRef, {
-        uid: user.uid,
-        name: values.authorityName,
-        email: values.email,
-        role: 'Government',
-        kycVerified: false, 
-        details: {},
-        avatarUrl: `https://i.pravatar.cc/150?u=${values.email}`,
-        walletAddress: address,
-      });
-
-      const approvalsRef = collection(firestore, 'pendingApprovals');
-      addDocumentNonBlocking(approvalsRef, {
-        userId: user.uid,
-        name: values.authorityName,
-        role: 'Government',
-        date: new Date().toISOString(),
-      });
-
-      toast({
-        title: "Registration Transaction Sent",
-        description: "Please confirm in your wallet. Your registration will then be submitted for admin approval.",
-      });
-      router.push('/login');
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Registration Failed",
-        description: error.message || "An unexpected error occurred.",
-      });
-    } finally {
-      setIsSubmitting(false);
+      toast({ variant: "destructive", title: "Registration Error", description: error.message || "An unexpected error occurred." });
     }
   }
 
@@ -171,9 +199,9 @@ export function GovernmentRegisterForm() {
                 <Button variant="link" asChild>
                     <Link href="/register">Back to roles</Link>
                 </Button>
-                <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90" disabled={isSubmitting || isPending || !isConnected}>
-                   {(isSubmitting || isPending) ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                   {isPending ? 'Confirm in wallet...' : isSubmitting ? 'Processing...' : 'Register On-Chain'}
+                <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90" disabled={isPending || !isConnected}>
+                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                   {isPending ? 'Confirm in wallet...' : isConfirming ? 'Processing transaction...' : 'Register On-Chain'}
                 </Button>
             </div>
           </form>

@@ -7,6 +7,12 @@ import { useDoc, useFirestore, useUser, useMemoFirebase } from '@/firebase';
 import { Skeleton } from '@/components/ui/skeleton';
 import { doc } from 'firebase/firestore';
 import type { Shipment, User as AppUser } from '@/lib/types';
+import dynamic from 'next/dynamic';
+
+const AnomalyDetector = dynamic(() => import('@/components/oversight/AnomalyDetector').then(mod => mod.AnomalyDetector), {
+  loading: () => <Skeleton className="h-10 w-32" />,
+  ssr: false,
+});
 
 export default function ShipmentDetailPage() {
   const params = useParams();
@@ -61,6 +67,11 @@ export default function ShipmentDetailPage() {
         </PageHeaderDescription>
       </PageHeader>
       <div className="p-4 sm:p-6 md:p-8">
+        {safeUserProfile && safeUserProfile.role === 'Government' && (
+          <div className="mb-8">
+            <AnomalyDetector shipment={safeShipment} />
+          </div>
+        )}
         <ShipmentDetailsClient shipment={safeShipment} userProfile={safeUserProfile} />
       </div>
     </div>

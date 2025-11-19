@@ -1,77 +1,63 @@
-
 'use client';
 
+import { useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { DashboardPage } from '@/components/dashboard/DashboardPage';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useUser, useFirestore, useDoc, useMemoFirebase, useCollection } from '@/firebase';
-import { collection, doc, query, where, and } from 'firebase/firestore';
-import type { User as AppUser, Shipment } from '@/lib/types';
+import { useFirestore, useCollection } from '@/firebase';
+import { collection, query, where, and } from 'firebase/firestore';
+import { useAuthState } from '@/lib/auth-state';
+import type { User as AppUser, Shipment, PendingApproval } from '@/lib/types';
 
-interface PendingApproval {
-  id: string;
-  userId: string;
-  name: string;
-  role: AppUser['role'];
-  date: string;
+const getShipmentsQuery = (firestore: any, user: AppUser) => {
+  const shipmentsRef = collection(firestore, 'shipments');
+  switch (user.role) {
+    case 'Farmer':
+      return query(shipmentsRef, where('farmerId', '==', user.uid));
+    case 'Transporter':
+      return user.walletAddress ? query(
+        shipmentsRef,
+        and(
+          where('transporterId', '==', user.walletAddress),
+          where('status', 'in', ['ReadyForPickup', 'In-Transit'])
+        )
+      ) : null;
+    case 'Industry':
+      return query(shipmentsRef, where('industryId', '==', user.uid));
+    case 'Admin':
+      return query(shipmentsRef);
+    default:
+      return null;
+  }
 }
 
 export default function Dashboard() {
-  const { user, isUserLoading } = useUser();
+  const { user: userProfile } = useAuthState();
   const firestore = useFirestore();
+  const router = useRouter();
 
-  const userProfileRef = useMemoFirebase(() => {
-    if (!user) return null;
-    return doc(firestore, 'users', user.uid);
-  }, [firestore, user]);
-
-  const { data: userProfile, isLoading: isProfileLoading } = useDoc<AppUser>(userProfileRef);
-
-  const shipmentsQuery = useMemoFirebase(() => {
-    if (!user || !userProfile) return null;
-    
-    const shipmentsRef = collection(firestore, 'shipments');
-
-    // Create a query based on the user's role
-    switch (userProfile.role) {
-      case 'Farmer':
-        return query(shipmentsRef, where('farmerId', '==', user.uid));
-      case 'Transporter':
-                // Transporters are identified by wallet address on shipments
-        if (!userProfile.walletAddress) return null;
-        return query(
-            shipmentsRef, 
-            and(
-              where('transporterId', '==', userProfile.walletAddress), 
-              where('status', 'in', ['ReadyForPickup', 'In-Transit'])
-            )
-        );
-      case 'Industry':
-        return query(shipmentsRef, where('industryId', '==', user.uid));
-      case 'Admin':
-      case 'Government':
-        return query(shipmentsRef); // Admins/Gov see all shipments
-      case 'Oracle':
-      // Oracles need to see in-transit shipments for weighments
-      return query(shipmentsRef, where('status', '==', 'In-Transit'))
-      default:
-        return null;
+  useEffect(() => {
+    if (userProfile?.role === 'Government') {
+      router.replace('/dashboard/oversight');
+    } else if (userProfile?.role === 'Oracle') {
+      router.replace('/dashboard/oracle');
     }
-  }, [firestore, user, userProfile]);
+  }, [userProfile, router]);
+
+  const shipmentsQuery = useMemo(() =>
+    userProfile ? getShipmentsQuery(firestore, userProfile) : null
+  , [firestore, userProfile]);
+
+  const pendingApprovalsQuery = useMemo(() =>
+    userProfile?.role === 'Admin' ? collection(firestore, 'pendingApprovals') : null
+  , [firestore, userProfile]);
 
   const { data: shipments, isLoading: areShipmentsLoading } = useCollection<Shipment>(shipmentsQuery);
+  const { data: pendingApprovals, isLoading: areApprovalsLoading } = useCollection<PendingApproval>(pendingApprovalsQuery);
+  
+  const isPageLoading = areShipmentsLoading || areApprovalsLoading;
 
-    // For Oracles, we also need to fetch pending approvals.
-  const approvalsQuery = useMemoFirebase(() => {
-    if (userProfile?.role !== 'Oracle') return null;
-    return query(collection(firestore, 'pendingApprovals'));
-  }, [firestore, userProfile]);
-
-  const { data: approvals, isLoading: areApprovalsLoading } = useCollection<PendingApproval>(approvalsQuery);
-
-
-  const isLoading = isUserLoading || isProfileLoading || areShipmentsLoading || areApprovalsLoading;
-
-  if (isLoading || !userProfile) {
+  if (!userProfile || userProfile.role === 'Government' || userProfile.role === 'Oracle' || isPageLoading) {
     return (
       <div className="p-4 sm:p-6 md:p-8">
         <Skeleton className="h-8 w-48 mb-6" />
@@ -84,5 +70,9 @@ export default function Dashboard() {
     );
   }
 
-  return <DashboardPage user={userProfile} shipments={shipments || []} pendingApprovals={approvals || []} />;
+  return <DashboardPage 
+            user={userProfile} 
+            shipments={shipments || []} 
+            pendingApprovals={pendingApprovals || []}
+        />;
 }

@@ -1,17 +1,29 @@
 {
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ]
+    }
+  ],
   "emulators": {
     "auth": {
-      "port": 9099
+      "port": 9098
     },
     "firestore": {
-      "port": 8080
+      "port": 8081
     },
     "ui": {
       "enabled": true
     },
     "singleProjectMode": true,
     "database": {
-      "port": 9000
+      "port": 9001
     }
   }
 }

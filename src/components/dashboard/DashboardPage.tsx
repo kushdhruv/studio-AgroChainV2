@@ -1,6 +1,6 @@
 'use client';
 
-import type { User as AppUser, Shipment } from '@/lib/types';
+import type { User as AppUser, Shipment, PendingApproval } from '@/lib/types';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,18 +9,25 @@ import { ShipmentCard } from '@/components/marketplace/ShipmentCard';
 import { AdminDashboard } from '../admin/AdminDashboard';
 import { PageHeader, PageHeaderHeading, PageHeaderDescription } from '../common/PageHeader';
 import { OracleDashboard } from '../oracle/OracleDashboard';
+import { GovernmentDashboard } from '../government/GovernmentDashboard';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+// ProposeWeighmentDialog (weighment proposals) has been removed from the main dashboard.
 
-interface PendingApproval {
-  id: string;
-  userId: string;
-  name: string;
-  role: AppUser['role'];
-  date: string;
-}
+const statusColors: { [key in Shipment['status']]: string } = {
+    Pending: "bg-yellow-100 text-yellow-800 border-yellow-300",
+    OfferMade: "bg-cyan-100 text-cyan-800 border-cyan-300",
+    AwaitingPayment: "bg-orange-100 text-orange-800 border-orange-300",
+    ReadyForPickup: "bg-blue-100 text-blue-800 border-blue-300",
+    "In-Transit": "bg-indigo-100 text-indigo-800 border-indigo-300",
+    Delivered: "bg-green-100 text-green-800 border-green-300",
+    Verified: "bg-emerald-100 text-emerald-800 border-emerald-300",
+    Cancelled: "bg-red-100 text-red-800 border-red-300",
+    Disputed: "bg-purple-100 text-purple-800 border-purple-300",
+};
 
 export function DashboardPage({ user, shipments, pendingApprovals }: { user: AppUser, shipments: Shipment[], pendingApprovals: PendingApproval[] }) {
   const farmerShipments = shipments.filter(s => s.farmerId === user.uid);
-  // For Transporter, the main `shipments` prop is already filtered to their active shipments
   const transporterShipments = shipments;
   const industryShipments = shipments.filter(s => s.industryId === user.uid);
   const industryActiveShipments = industryShipments.filter(s => ['AwaitingPayment', 'ReadyForPickup', 'In-Transit'].includes(s.status));
@@ -75,11 +82,11 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
         <PageHeaderDescription>View your assigned shipments and update their status.</PageHeaderDescription>
       </PageHeader>
       <div className="p-4 sm:p-6 md:p-8 space-y-8">
-        <h3 className="font-headline text-2xl font-bold mb-4">Your Active Shipments</h3>
+        <h3 className="font-headline text-2xl font-bold mb-4">Your Recent Active Shipments</h3>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {transporterShipments.length > 0 ? transporterShipments.map(shipment => (
+            {transporterShipments.length > 0 ? transporterShipments.slice(0,3).map(shipment => (
                 <ShipmentCard key={shipment.id} shipment={shipment} />
-                       )) : (
+            )) : (
               <Card className="md:col-span-2 lg:col-span-3">
                 <CardContent className="pt-6 text-center">
                   <p className="text-muted-foreground">You have no shipments that are ready for pickup or in-transit.</p>
@@ -97,6 +104,52 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
                 </Button>
             </div>
         )}
+
+        <div>
+            <h3 className="font-headline text-2xl font-bold mb-4">Your Recent Listings</h3>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {transporterShipments.length > 0 ? transporterShipments.slice(0,3).map(shipment => (
+                    <ShipmentCard key={shipment.id} shipment={shipment} />
+                )) : <p>You haven't transported any shipments yet.</p>}
+            </div>
+        </div>
+
+        <Card>
+            <CardHeader>
+            <CardTitle className="font-headline">In-Transit Shipments</CardTitle>
+            <CardDescription>Shipments currently in transit.</CardDescription>
+            </CardHeader>
+            <CardContent>
+            <Table>
+                <TableHeader>
+                <TableRow>
+                    <TableHead>Shipment ID</TableHead>
+                    <TableHead>Content</TableHead>
+                    <TableHead>Route</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+                </TableHeader>
+                <TableBody>
+                {transporterShipments.length > 0 ? transporterShipments.map(shipment => (
+                    <TableRow key={shipment.id}>
+                    <TableCell className="font-medium">{shipment.id.slice(0,10)}...</TableCell>
+                    <TableCell>{shipment.content}</TableCell>
+                    <TableCell>{shipment.origin} {shipment.destination ? `→ ${shipment.destination}` : ''}</TableCell>
+                    <TableCell><Badge className={statusColors[shipment.status]}>{shipment.status}</Badge></TableCell>
+          <TableCell className="text-right">
+            {/* Propose-weighment flow removed; weighments are attached via Oracle console only */}
+          </TableCell>
+                    </TableRow>
+                )) : (
+                    <TableRow>
+                        <TableCell colSpan={5} className="text-center h-24">No in-transit shipments found.</TableCell>
+                    </TableRow>
+                )}
+                </TableBody>
+            </Table>
+            </CardContent>
+        </Card>
       </div>
     </>
   );
@@ -149,28 +202,14 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
                 )}
             </div>
         </div>
-      </div>
-    </>
-  );
-
-  const GovernmentDashboard = () => (
-    <>
-      <PageHeader>
-        <PageHeaderHeading>Oversight Portal</PageHeaderHeading>
-        <PageHeaderDescription>Access the Government Oversight Dashboard.</PageHeaderDescription>
-      </PageHeader>
-      <div className="p-4 sm:p-6 md:p-8">
-        <Card>
-          <CardHeader>
-            <CardTitle className="font-headline">Supply Chain View</CardTitle>
-            <CardDescription>Get a global, real-time view of all shipments and use AI-powered tools for analysis.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="bg-accent text-accent-foreground hover:bg-accent/90">
-              <Link href="/dashboard/oversight"><Landmark className="mr-2 h-4 w-4" />Open Oversight Dashboard</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        <div>
+            <h3 className="font-headline text-2xl font-bold mb-4">Your Recent Listings</h3>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {industryShipments.length > 0 ? industryShipments.slice(0,3).map(shipment => (
+                    <ShipmentCard key={shipment.id} shipment={shipment} />
+                )) : <p>You haven't accepted any shipments yet.</p>}
+            </div>
+        </div>
       </div>
     </>
   );
@@ -194,10 +233,34 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
        <PageHeaderDescription>Approve KYC for new participants and attach real-world data to shipments.</PageHeaderDescription>
       </PageHeader>
       <div className="p-4 sm:p-6 md:p-8">
-        <OracleDashboard shipments={shipments} pendingApprovals={pendingApprovals}/>
+        <OracleDashboard shipments={shipments} />
       </div>
     </>
   );
+
+  const GovernmentDashboardView = () => {
+    // Transform PendingApproval[] to the User[] that GovernmentDashboard expects
+    const initialUsers: AppUser[] = pendingApprovals.map(approval => ({
+      uid: approval.userId,
+      name: approval.name,
+      email: approval.email,
+      role: approval.role,
+      details: approval.details,
+      kycVerified: false, // By definition, these users are pending approval
+    }));
+
+    return (
+      <>
+        <PageHeader>
+          <PageHeaderHeading>Government Console</PageHeaderHeading>
+          <PageHeaderDescription>Approve KYC for new participants.</PageHeaderDescription>
+        </PageHeader>
+        <div className="p-4 sm:p-6 md:p-8">
+          <GovernmentDashboard initialUsers={initialUsers} />
+        </div>
+      </>
+    );
+  };
 
   switch (user.role) {
     case 'Farmer':
@@ -207,7 +270,7 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
     case 'Industry':
       return <IndustryDashboard />;
     case 'Government':
-      return <GovernmentDashboard />;
+      return <GovernmentDashboardView />;
     case 'Admin':
       return <AdminDashboardView />;
     case 'Oracle':

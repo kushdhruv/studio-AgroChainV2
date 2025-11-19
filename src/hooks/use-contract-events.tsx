@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { useWatchContractEvent } from 'wagmi';
 import { useFirestore } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { contractAddresses } from '@/contracts/addresses';
 import { ShipmentTokenABI } from '@/contracts/ShipmentToken';
 import { EscrowPaymentABI } from '@/contracts/EscrowPayment';
@@ -26,25 +26,35 @@ export function useShipmentCreatedEvent() {
     eventName: 'ShipmentCreated',
     onLogs(logs) {
       logs.forEach((log) => {
-        const { shipmentId, farmer, tokenId, metaDataHash, timestamp } = log.args;
+        const { shipmentId, farmer, tokenId, metaDataHash, timestamp } = (log as any).args;
         if (shipmentId && farmer) {
-          // Find the shipment in Firestore by shipmentIdOnChain
-          // Note: You may need to store a mapping of shipmentIdOnChain -> Firestore doc ID
-          // For now, we'll update any shipment with matching shipmentIdOnChain
-          const shipmentRef = doc(firestore, 'shipments', tokenId?.toString() || '');
+          // ✅ FIXED: Use shipmentId (bytes32) as document key, not tokenId
+          // This ensures consistent mapping between on-chain IDs and Firestore documents
+          const firestoreDocId = shipmentId.slice(0, 20);  // Use first 20 chars of shipmentId as doc ID
+          const shipmentRef = doc(firestore, 'shipments', firestoreDocId);
           
           updateDoc(shipmentRef, {
-            shipmentIdOnChain: shipmentId,
-            farmerWallet: farmer,
             status: 'Pending',
-            timeline: [
-              {
-                status: 'Pending',
-                timestamp: new Date(Number(timestamp) * 1000).toISOString(),
-                details: 'Shipment created on-chain',
-              },
-            ],
+            timeline: [{
+              status: 'Pending',
+              timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+              details: 'Shipment created on-chain',
+            }],
           }).catch((error) => {
+            if (error.code === 'not-found') {
+              // Document doesn't exist yet, create it
+              return setDoc(shipmentRef, {
+                shipmentIdOnChain: shipmentId,
+                tokenIdOnChain: tokenId?.toString(),
+                farmerWallet: farmer,
+                status: 'Pending',
+                timeline: [{
+                  status: 'Pending',
+                  timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+                  details: 'Shipment created on-chain',
+                }],
+              });
+            }
             console.error('Failed to update Firestore with ShipmentCreated event:', error);
           });
         }
@@ -66,7 +76,7 @@ export function useShipmentStateChangedEvent() {
     eventName: 'ShipmentStateChanged',
     onLogs(logs) {
       logs.forEach((log) => {
-        const { shipmentId, newState, timestamp } = log.args;
+        const { shipmentId, newState, timestamp } = (log as any).args;
         if (shipmentId && newState !== undefined) {
           // Map contract state to frontend status
           const stateMap: Record<number, string> = {
@@ -82,19 +92,17 @@ export function useShipmentStateChangedEvent() {
 
           const newStatus = stateMap[Number(newState)] || 'Pending';
           
-          // Find shipment by shipmentIdOnChain
-          // This is a simplified approach - in production, maintain a mapping
-          const shipmentRef = doc(firestore, 'shipments', shipmentId.toString().slice(0, 20));
+          // ✅ FIXED: Use consistent document ID (first 20 chars of shipmentId)
+          const firestoreDocId = shipmentId.slice(0, 20);
+          const shipmentRef = doc(firestore, 'shipments', firestoreDocId);
           
           updateDoc(shipmentRef, {
             status: newStatus,
-            timeline: [
-              {
-                status: newStatus,
-                timestamp: new Date(Number(timestamp) * 1000).toISOString(),
-                details: `Shipment state changed to ${newStatus} on-chain`,
-              },
-            ],
+            timeline: [{
+              status: newStatus,
+              timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+              details: `Shipment state changed to ${newStatus} on-chain`,
+            }],
           }).catch((error) => {
             console.error('Failed to update Firestore with ShipmentStateChanged event:', error);
           });
@@ -117,10 +125,11 @@ export function usePaymentDepositedEvent() {
     eventName: 'PaymentDeposited',
     onLogs(logs) {
       logs.forEach((log) => {
-        const { shipmentId, payer, token, amount, farmer, transporter, farmerBps, transporterBps, platformBps, timestamp } = log.args;
+        const { shipmentId, payer, token, amount, farmer, transporter, farmerBps, transporterBps, platformBps, timestamp } = (log as any).args;
         if (shipmentId) {
-          // Update shipment with payment info
-          const shipmentRef = doc(firestore, 'shipments', shipmentId.toString().slice(0, 20));
+          // ✅ FIXED: Use consistent document ID (first 20 chars of shipmentId)
+          const firestoreDocId = shipmentId.slice(0, 20);
+          const shipmentRef = doc(firestore, 'shipments', firestoreDocId);
           
           updateDoc(shipmentRef, {
             status: 'AwaitingPayment',
@@ -135,13 +144,11 @@ export function usePaymentDepositedEvent() {
               platformBps,
               depositedAt: new Date(Number(timestamp) * 1000).toISOString(),
             },
-            timeline: [
-              {
-                status: 'AwaitingPayment',
-                timestamp: new Date(Number(timestamp) * 1000).toISOString(),
-                details: `Payment of ${amount?.toString()} tokens deposited by ${payer}`,
-              },
-            ],
+            timeline: [{
+              status: 'AwaitingPayment',
+              timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+              details: `Payment of ${amount?.toString()} tokens deposited by ${payer}`,
+            }],
           }).catch((error) => {
             console.error('Failed to update Firestore with PaymentDeposited event:', error);
           });
@@ -164,7 +171,7 @@ export function useDisputeRaisedEvent() {
     eventName: 'DisputeRaised',
     onLogs(logs) {
       logs.forEach((log) => {
-        const { disputeId, shipmentId, raisedBy, timestamp } = log.args;
+        const { disputeId, shipmentId, raisedBy, timestamp } = (log as any).args;
         if (disputeId && shipmentId && raisedBy) {
           // Update shipment status to Disputed
           const shipmentRef = doc(firestore, 'shipments', shipmentId.toString().slice(0, 20));
@@ -185,7 +192,7 @@ export function useDisputeRaisedEvent() {
           // Create or update dispute document
           const disputeRef = doc(firestore, 'disputes', disputeId.toString());
           
-          updateDoc(disputeRef, {
+          setDoc(disputeRef, {
             disputeIdOnChain: Number(disputeId),
             shipmentIdOnChain: shipmentId.toString(),
             raiserWallet: raisedBy.toString(),
@@ -210,4 +217,3 @@ export function useContractEvents() {
   usePaymentDepositedEvent();
   useDisputeRaisedEvent();
 }
-

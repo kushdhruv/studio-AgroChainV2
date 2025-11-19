@@ -1,4 +1,3 @@
-
 'use client';
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,8 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Separator } from "../ui/separator";
 import { Textarea } from "../ui/textarea";
 import { useFirestore, useUser } from "@/firebase";
-import { doc, collection } from "firebase/firestore";
-import { updateDocumentNonBlocking, addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { uploadJsonToIPFS } from "@/lib/actions";
 import { useAccount, useWriteContract } from "wagmi";
 import { RegistrationABI } from "@/contracts/Registration";
@@ -70,6 +68,15 @@ const governmentKycSchema = baseSchema.extend({
     jurisdictionArea: z.string().min(2, "Jurisdiction is required."),
 });
 
+// Combine all schemas for a unified TypeScript type
+const allFieldsSchema = farmerKycSchema
+  .merge(transporterKycSchema)
+  .merge(industryKycSchema)
+  .merge(governmentKycSchema);
+
+// This creates a static type that includes all possible fields
+type AllFields = z.infer<typeof allFieldsSchema>;
+
 const getSchema = (role: Role) => {
     switch (role) {
         case 'Farmer': return farmerKycSchema;
@@ -91,9 +98,9 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
   const formSchema = getSchema(userProfile.role);
 
   const defaultValues = {
-    name: userProfile.name,
-    email: userProfile.email,
-    ...(userProfile.role === 'Farmer' && { 
+    name: userProfile.name || "",
+    email: userProfile.email || "",
+    ...(userProfile.role === 'Farmer' && userProfile.details && { 
         aadhaarEncrypted: userProfile.details.aadhaarEncrypted || "",
         farmState: userProfile.details.farm?.location?.state || "",
         farmDistrict: userProfile.details.farm?.location?.district || "",
@@ -108,7 +115,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         avgQuantityPerSeasonTonnes: userProfile.details.waste?.avgQuantityPerSeasonTonnes || 0,
         currentDisposalMethod: userProfile.details.waste?.currentDisposalMethod || "",
     }),
-    ...(userProfile.role === 'Transporter' && { 
+    ...(userProfile.role === 'Transporter' && userProfile.details && { 
         aadhaarEncrypted: userProfile.details.aadhaarEncrypted || "",
         licenseNumber: userProfile.details.licenseNumber || "",
         registrationNumber: userProfile.details.vehicle?.registrationNumber || "",
@@ -116,7 +123,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         capacityTonnes: userProfile.details.vehicle?.capacityTonnes || 0,
         serviceAreas: userProfile.details.employment?.serviceAreas?.join(', ') || "",
      }),
-    ...(userProfile.role === 'Industry' && { 
+    ...(userProfile.role === 'Industry' && userProfile.details && { 
         companyType: userProfile.details.companyType || undefined,
         incorporationNumber: userProfile.details.incorporationNumber || "",
         gstNumber: userProfile.details.gstNumber || "",
@@ -124,18 +131,19 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         wasteTypes: userProfile.details.operations?.wasteRequirements?.wasteTypes?.join(', ') || "",
         monthlyRequirementTonnes: userProfile.details.operations?.wasteRequirements?.monthlyRequirementTonnes || 0,
     }),
-    ...(userProfile.role === 'Government' && { 
+    ...(userProfile.role === 'Government' && userProfile.details && { 
         authorityType: userProfile.details.authorityType || undefined,
         department: userProfile.details.department || "",
         jurisdictionArea: userProfile.details.jurisdictionArea || ""
     }),
   };
 
-  const form = useForm<typeof defaultValues>({
-      resolver: zodResolver(formSchema),
-      defaultValues,
-    });
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  const form = useForm<AllFields>({
+      resolver: zodResolver(formSchema) as any,
+      defaultValues,
+  });
+
+  async function onSubmit(values: any) {
     if (!user || !walletAddress) {
         toast({
             variant: "destructive",
@@ -189,32 +197,30 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
             detailsJson.government = updatedDetails;
         }
 
-    // Always update the Firestore document first for a better UX
         const userDocRef = doc(firestore, 'users', user.uid);
-        updateDocumentNonBlocking(userDocRef, {
+        await updateDoc(userDocRef, {
             name: values.name,
             email: values.email,
             details: updatedDetails,
-            // We do NOT set kycVerified here. It's set by the Oracle's transaction.
         });
         
-        // This is the first time the user is submitting their KYC details.
-        // We add them to the pending approvals list for an Oracle to review.
+        const approvalDocRef = doc(firestore, 'pendingApprovals', user.uid);
+
         if (!userProfile.kycVerified) {
-             const approvalsRef = collection(firestore, 'pendingApprovals');
-             await addDocumentNonBlocking(approvalsRef, {
+             await setDoc(approvalDocRef, {
                 userId: user.uid,
                 name: values.name,
+                email: values.email,
                 role: userProfile.role,
-                date: new Date().toISOString(),
+                walletAddress: walletAddress, // <-- FIX: Added wallet address
+                details: updatedDetails,
+                submittedAt: new Date().toISOString(),
              });
              toast({
                 title: "KYC Submitted for Review",
                 description: "Your details have been saved and sent to an Oracle for on-chain verification.",
              });
         } 
-        // This user is already verified and is updating their info.
-        // Call updateMetaData to put the new hash on-chain and reset their status.
         else {
             const ipfsResponse = await uploadJsonToIPFS(detailsJson);
             if (!ipfsResponse.success || !ipfsResponse.ipfsHash) {
@@ -228,18 +234,17 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                 args: [ipfsResponse.ipfsHash, true], // isCritical = true to reset KYC
             });
 
-            // Update local firestore to reflect the need for re-verification
-             updateDocumentNonBlocking(userDocRef, { kycVerified: false });
+            await updateDoc(userDocRef, { kycVerified: false });
              
-             // Also add back to approvals queue
-             const approvalsRef = collection(firestore, 'pendingApprovals');
-             await addDocumentNonBlocking(approvalsRef, {
+             await setDoc(approvalDocRef, {
                 userId: user.uid,
                 name: values.name,
+                email: values.email,
                 role: userProfile.role,
-                date: new Date().toISOString(),
+                walletAddress: walletAddress, // <-- FIX: Added wallet address
+                details: updatedDetails,
+                submittedAt: new Date().toISOString(),
              });
-
 
             toast({
               title: "Profile Update Submitted",
@@ -262,51 +267,51 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         return <>
           <Separator />
           <h3 className="font-headline text-lg font-semibold">KYC Details</h3>
-          <FormField control={form.control} name="aadhaarEncrypted" render={({ field }) => (
+          <FormField control={form.control as any} name="aadhaarEncrypted" render={({ field }) => (
             <FormItem><FormLabel>Aadhaar Number</FormLabel><FormControl><Input placeholder="Enter 12-digit Aadhaar" {...field} /></FormControl><FormDescription>Your data will be encrypted.</FormDescription><FormMessage /></FormItem>
           )} />
           <h4 className="font-semibold">Farm Location</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField control={form.control} name="farmState" render={({ field }) => (
+            <FormField control={form.control as any} name="farmState" render={({ field }) => (
               <FormItem><FormLabel>State</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="farmDistrict" render={({ field }) => (
+            <FormField control={form.control as any} name="farmDistrict" render={({ field }) => (
               <FormItem><FormLabel>District</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="farmVillage" render={({ field }) => (
+            <FormField control={form.control as any} name="farmVillage" render={({ field }) => (
               <FormItem><FormLabel>Village</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="farmPincode" render={({ field }) => (
+            <FormField control={form.control as any} name="farmPincode" render={({ field }) => (
               <FormItem><FormLabel>Pincode</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-             <FormField control={form.control} name="gpsCoordinates" render={({ field }) => (
+             <FormField control={form.control as any} name="gpsCoordinates" render={({ field }) => (
               <FormItem><FormLabel>GPS Coordinates</FormLabel><FormControl><Input placeholder="Lat, Long" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
           </div>
           <h4 className="font-semibold">Land & Crop Details</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField control={form.control} name="totalAreaAcres" render={({ field }) => (
+            <FormField control={form.control as any} name="totalAreaAcres" render={({ field }) => (
               <FormItem><FormLabel>Total Land Area (Acres)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-             <FormField control={form.control} name="ownershipType" render={({ field }) => (
+             <FormField control={form.control as any} name="ownershipType" render={({ field }) => (
                 <FormItem><FormLabel>Ownership</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Owned">Owned</SelectItem><SelectItem value="Leased">Leased</SelectItem><SelectItem value="Sharecropping">Sharecropping</SelectItem></SelectContent></Select><FormMessage /></FormItem>
               )} />
-            <FormField control={form.control} name="primaryCrops" render={({ field }) => (
+            <FormField control={form.control as any} name="primaryCrops" render={({ field }) => (
               <FormItem><FormLabel>Primary Crops</FormLabel><FormControl><Textarea placeholder="e.g., Wheat, Rice" {...field} /></FormControl><FormDescription>Comma-separated.</FormDescription><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="croppingSeason" render={({ field }) => (
+            <FormField control={form.control as any} name="croppingSeason" render={({ field }) => (
               <FormItem><FormLabel>Cropping Season</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select season" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Kharif">Kharif</SelectItem><SelectItem value="Rabi">Rabi</SelectItem><SelectItem value="Zaid">Zaid</SelectItem></SelectContent></Select><FormMessage /></FormItem>
             )} />
           </div>
           <h4 className="font-semibold">Waste Generation</h4>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField control={form.control} name="wasteTypes" render={({ field }) => (
+            <FormField control={form.control as any} name="wasteTypes" render={({ field }) => (
               <FormItem><FormLabel>Waste Types Generated</FormLabel><FormControl><Textarea placeholder="e.g., Paddy straw" {...field} /></FormControl><FormDescription>Comma-separated.</FormDescription><FormMessage /></FormItem>
             )} />
-             <FormField control={form.control} name="avgQuantityPerSeasonTonnes" render={({ field }) => (
+             <FormField control={form.control as any} name="avgQuantityPerSeasonTonnes" render={({ field }) => (
               <FormItem><FormLabel>Average Waste (Tonnes/season)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="currentDisposalMethod" render={({ field }) => (
+            <FormField control={form.control as any} name="currentDisposalMethod" render={({ field }) => (
               <FormItem className="md:col-span-2"><FormLabel>Current Disposal Method</FormLabel><FormControl><Input placeholder="e.g., Burning" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
           </div>
@@ -315,23 +320,23 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         return <>
             <Separator />
             <h3 className="font-headline text-lg font-semibold">KYC & Vehicle Details</h3>
-            <FormField control={form.control} name="aadhaarEncrypted" render={({ field }) => (
+            <FormField control={form.control as any} name="aadhaarEncrypted" render={({ field }) => (
               <FormItem><FormLabel>Aadhaar Number</FormLabel><FormControl><Input placeholder="Enter 12-digit Aadhaar" {...field} /></FormControl><FormDescription>Your data will be encrypted.</FormDescription><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="licenseNumber" render={({ field }) => (
+            <FormField control={form.control as any} name="licenseNumber" render={({ field }) => (
                 <FormItem><FormLabel>Driving License Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField control={form.control} name="registrationNumber" render={({ field }) => (
+              <FormField control={form.control as any} name="registrationNumber" render={({ field }) => (
                   <FormItem><FormLabel>Vehicle Registration</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-               <FormField control={form.control} name="vehicleType" render={({ field }) => (
+               <FormField control={form.control as any} name="vehicleType" render={({ field }) => (
                 <FormItem><FormLabel>Vehicle Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Truck">Truck</SelectItem><SelectItem value="Tractor">Tractor</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="capacityTonnes" render={({ field }) => (
+              <FormField control={form.control as any} name="capacityTonnes" render={({ field }) => (
                   <FormItem><FormLabel>Capacity (Tonnes)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="serviceAreas" render={({ field }) => (
+              <FormField control={form.control as any} name="serviceAreas" render={({ field }) => (
                   <FormItem><FormLabel>Service Areas</FormLabel><FormControl><Input placeholder="e.g. Lucknow, Kanpur" {...field} /></FormControl><FormDescription>Comma-separated.</FormDescription><FormMessage /></FormItem>
               )} />
             </div>
@@ -341,25 +346,25 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
             <Separator />
             <h3 className="font-headline text-lg font-semibold">Company Verification</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField control={form.control} name="companyType" render={({ field }) => (
+              <FormField control={form.control as any} name="companyType" render={({ field }) => (
                 <FormItem><FormLabel>Company Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Private">Private</SelectItem><SelectItem value="Public">Public</SelectItem><SelectItem value="Cooperative">Cooperative</SelectItem><SelectItem value="FPO">FPO</SelectItem></SelectContent></Select><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="incorporationNumber" render={({ field }) => (
+              <FormField control={form.control as any} name="incorporationNumber" render={({ field }) => (
                   <FormItem><FormLabel>Incorporation Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="gstNumber" render={({ field }) => (
+              <FormField control={form.control as any} name="gstNumber" render={({ field }) => (
                   <FormItem><FormLabel>GST Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
             </div>
             <h4 className="font-semibold">Operational Details</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField control={form.control} name="processingCapacityTonnesPerDay" render={({ field }) => (
+              <FormField control={form.control as any} name="processingCapacityTonnesPerDay" render={({ field }) => (
                   <FormItem><FormLabel>Processing Capacity (Tonnes/Day)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="wasteTypes" render={({ field }) => (
+              <FormField control={form.control as any} name="wasteTypes" render={({ field }) => (
                   <FormItem><FormLabel>Required Waste Types</FormLabel><FormControl><Input {...field} /></FormControl><FormDescription>Comma-separated.</FormDescription><FormMessage /></FormItem>
               )} />
-              <FormField control={form.control} name="monthlyRequirementTonnes" render={({ field }) => (
+              <FormField control={form.control as any} name="monthlyRequirementTonnes" render={({ field }) => (
                   <FormItem><FormLabel>Monthly Requirement (Tonnes)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
             </div>
@@ -368,13 +373,13 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
         return <>
             <Separator />
             <h3 className="font-headline text-lg font-semibold">Authority Details</h3>
-            <FormField control={form.control} name="authorityType" render={({ field }) => (
+            <FormField control={form.control as any} name="authorityType" render={({ field }) => (
               <FormItem><FormLabel>Authority Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Central">Central</SelectItem><SelectItem value="State">State</SelectItem><SelectItem value="District">District</SelectItem><SelectItem value="Block">Block</SelectItem></SelectContent></Select><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="department" render={({ field }) => (
+            <FormField control={form.control as any} name="department" render={({ field }) => (
               <FormItem><FormLabel>Department</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
-            <FormField control={form.control} name="jurisdictionArea" render={({ field }) => (
+            <FormField control={form.control as any} name="jurisdictionArea" render={({ field }) => (
               <FormItem><FormLabel>Jurisdiction Area</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
             )} />
         </>;
@@ -399,14 +404,14 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <h3 className="font-headline text-lg font-semibold">Basic Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField control={form.control} name="name" render={({ field }) => (
+              <FormField control={form.control as any} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Full Name / Company Name</FormLabel>
                   <FormControl><Input placeholder="Your full name" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={form.control} name="email" render={({ field }) => (
+              <FormField control={form.control as any} name="email" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Email Address</FormLabel>
                   <FormControl><Input type="email" placeholder="you@example.com" {...field} /></FormControl>

@@ -17,19 +17,30 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LogOut, User as UserIcon } from 'lucide-react';
 import Link from 'next/link';
+import { useDisconnect } from 'wagmi';
+import { toast } from 'react-hot-toast';
 
 export function UserNav({ user }: { user: AppUser }) {
   const auth = useAuth();
   const router = useRouter();
+  const { disconnect } = useDisconnect();
   
   const handleLogout = async () => {
-    // Handle both Firebase auth and localStorage "session" for Oracles
-    if (user.email.includes('@')) {
+    // Check if user is logged in via wallet (has walletAddress)
+    if (user.walletAddress) {
+      // Wallet login - disconnect wallet and redirect
+      disconnect();
+      toast.success('Logged out successfully');
+      router.push('/login');
+    } else if (user.email.includes('@')) {
+      // Firebase email login
       await signOut(auth);
+      router.push('/login');
     } else {
+      // Oracle login via localStorage
       localStorage.removeItem('user');
+      router.push('/login');
     }
-    router.push('/login');
   };
 
   const fallback = user.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U';
@@ -51,6 +62,11 @@ export function UserNav({ user }: { user: AppUser }) {
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}
             </p>
+            {user.walletAddress && (
+              <p className="text-xs leading-none text-muted-foreground font-mono">
+                {user.walletAddress.substring(0, 10)}...{user.walletAddress.substring(user.walletAddress.length - 8)}
+              </p>
+            )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

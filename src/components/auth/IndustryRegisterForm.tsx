@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import Link from 'next/link';
 import { useAuth, useFirestore } from "@/firebase";
 import { createUserWithEmailAndPassword, fetchSignInMethodsForEmail } from "firebase/auth";
-import { doc, setDoc, collection, addDoc } from "firebase/firestore";
-import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { doc, setDoc } from "firebase/firestore";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { RegistrationABI } from "@/contracts/Registration";
 import type { Role } from "@/lib/types";
 import { contractAddresses } from "@/contracts/addresses";
@@ -25,6 +25,7 @@ import { ConnectWallet } from "./ConnectWallet";
 const formSchema = z.object({
   companyName: z.string().min(2, "Company name is required."),
   email: z.string().email(),
+  mobile: z.string().regex(/^\+91-\d{10}$/, { message: "Enter a valid Indian mobile number (+91-XXXXXXXXXX)." }),
   password: z.string().min(8, "Password must be at least 8 characters."),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
@@ -40,17 +41,18 @@ const onChainRoleMap: { [key in Role]?: number } = {
     Admin: 5,
 };
 
-
 export function IndustryRegisterForm() {
   const auth = useAuth();
   const firestore = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
-  
+  const [emailExists, setEmailExists] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+
   const { address, isConnected } = useAccount();
-  const { data: hash, writeContractAsync, isPending, error: contractError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+  const { data: hash, writeContract, isPending, error: writeError } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed, error: confirmError } = useWaitForTransactionReceipt({ hash });
 
   useEffect(() => {
     setIsClient(true);
@@ -61,10 +63,31 @@ export function IndustryRegisterForm() {
     defaultValues: {
       companyName: "",
       email: "",
+      mobile: "+91-",
       password: "",
       confirmPassword: "",
     },
   });
+
+  const handleEmailBlur = async (email: string) => {
+    if (!email) return;
+    setIsCheckingEmail(true);
+    try {
+      const signInMethods = await fetchSignInMethodsForEmail(auth, email);
+      setEmailExists(signInMethods.length > 0);
+      if (signInMethods.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Email Already Registered",
+          description: "This email address is already in use.",
+        });
+      }
+    } catch (error) {
+      console.error("Error checking email:", error);
+    } finally {
+      setIsCheckingEmail(false);
+    }
+  };
 
   useEffect(() => {
     async function handleRegistrationSuccess() {
@@ -72,47 +95,48 @@ export function IndustryRegisterForm() {
         const values = form.getValues();
         try {
           const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // small delay
           const user = userCredential.user;
 
-          const userDocRef = doc(firestore, "users", user.uid);
+          // **KEY FIX:** Store wallet address in lowercase and use it as the uid
+          // This makes wallet login work without complex searches
+          const normalizedAddress = address ? address.toLowerCase() : null;
+          const firestoreUid = normalizedAddress || user.uid;
+
+          const userDocRef = doc(firestore, "users", firestoreUid);
           await setDoc(userDocRef, {
-            uid: user.uid,
+            uid: firestoreUid,
             name: values.companyName,
             email: values.email,
+            mobile: values.mobile,
             role: 'Industry',
             kycVerified: false,
             details: {},
             avatarUrl: `https://i.pravatar.cc/150?u=${values.email}`,
-            walletAddress: address,
+            walletAddress: normalizedAddress,
+            registeredAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
           });
 
-          const approvalsRef = collection(firestore, 'pendingApprovals');
-          addDocumentNonBlocking(approvalsRef, {
-            userId: user.uid,
-            name: values.companyName,
-            role: 'Industry',
-            date: new Date().toISOString(),
-          });
+          // **FIX:** Automatic addition to KYC queue has been removed.
 
           toast({
             title: "Registration Complete!",
-            description: "Your on-chain registration is confirmed and is now pending admin approval.",
+            description: "Your account has been created. You can now log in.",
           });
-          router.push('/login');
+          router.push("/login");
 
         } catch (error: any) {
-          if (error.code === 'auth/email-already-in-use') {
+          if (error.code === "auth/email-already-in-use") {
             toast({
               variant: "destructive",
               title: "Email Already Registered",
               description: "This email is already in use. Please log in or use a different email address.",
             });
           } else {
-             toast({
+            toast({
               variant: "destructive",
-              title: "Post-transaction Error",
-              description: error.message || "An unexpected error occurred while creating your profile.",
+              title: "Registration Failed",
+              description: "Failed to create your profile after the transaction. Please contact support.",
             });
           }
         }
@@ -122,53 +146,43 @@ export function IndustryRegisterForm() {
   }, [isConfirmed, auth, firestore, address, form, router, toast]);
 
   useEffect(() => {
-    if (contractError) {
+    if (writeError || confirmError) {
+      const error = writeError || confirmError;
       toast({
         variant: "destructive",
         title: "On-Chain Registration Failed",
-        description: contractError.message.split('\n')[0] || "The transaction was rejected or failed.",
+        description: error?.message?.split('\n')[0] || "The transaction was rejected or failed.",
       });
     }
-  }, [contractError, toast]);
+  }, [writeError, confirmError, toast]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!isConnected || !address) {
       toast({ variant: "destructive", title: "Wallet Not Connected", description: "Please connect your wallet to register." });
       return;
     }
-    
+
     try {
-      // Step 1: Check if email already exists
       const signInMethods = await fetchSignInMethodsForEmail(auth, values.email);
       if (signInMethods.length > 0) {
-        toast({
-          variant: "destructive",
-          title: "Email Already Registered",
-          description: "This email address is already in use. Please use a different one or log in.",
-        });
+        toast({ variant: "destructive", title: "Email Already Registered", description: "This email address is already in use." });
         return;
       }
-      
-      // Step 2: Register participant on-chain
+
       const roleId = onChainRoleMap['Industry'];
       if (roleId === undefined) throw new Error("Invalid role for on-chain registration");
-      const metadata = JSON.stringify({ name: values.companyName, firestoreId: "pending" });
-      
-      await writeContractAsync({
+
+      const metadata = JSON.stringify({ name: values.companyName, email: values.email, mobile: values.mobile, timestamp: new Date().toISOString() });
+
+      writeContract({
         abi: RegistrationABI,
-        address: contractAddresses.Registration,
+        address: contractAddresses.Registration as `0x${string}`,
         functionName: 'registerParticipant',
         args: [roleId, metadata],
       });
 
     } catch (error: any) {
-       if (error.code !== 'ACTION_REJECTED') {
-          toast({
-            variant: "destructive",
-            title: "Pre-transaction Error",
-            description: error.message || "An unexpected error occurred before sending the transaction.",
-          });
-      }
+      toast({ variant: "destructive", title: "Registration Error", description: error.message || "An unexpected error occurred." });
     }
   }
 
@@ -182,6 +196,12 @@ export function IndustryRegisterForm() {
         <CardDescription>Create your account. This will require a transaction to register you on-chain.</CardDescription>
       </CardHeader>
       <CardContent>
+        {!isWalletConnected && (
+            <Alert className="mb-6" variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>Please connect your wallet first to proceed with registration.</AlertDescription>
+            </Alert>
+        )}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <FormField control={form.control} name="companyName" render={({ field }) => (
@@ -194,10 +214,28 @@ export function IndustryRegisterForm() {
             <FormField control={form.control} name="email" render={({ field }) => (
               <FormItem>
                 <FormLabel>Business Email</FormLabel>
-                <FormControl><Input type="email" placeholder="business@company.com" {...field} /></FormControl>
+                <FormControl>
+                    <Input 
+                        type="email" 
+                        placeholder="business@company.com" 
+                        {...field} 
+                        onBlur={(e) => {
+                            field.onBlur();
+                            handleEmailBlur(e.target.value);
+                        }}
+                    />
+                </FormControl>
+                {emailExists && <p className="text-sm font-medium text-destructive">This email is already registered.</p>}
                 <FormMessage />
               </FormItem>
             )} />
+                <FormField control={form.control} name="mobile" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone Number</FormLabel>
+                    <FormControl><Input type="tel" placeholder="+1 555 555 5555" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
             <FormField control={form.control} name="password" render={({ field }) => (
               <FormItem>
                 <FormLabel>Password</FormLabel>
@@ -214,12 +252,12 @@ export function IndustryRegisterForm() {
             )} />
 
             <div className="flex items-center justify-between pt-4">
-                <Button variant="link" asChild>
+                <Button variant="outline" asChild>
                     <Link href="/register">Back to roles</Link>
                 </Button>
                 <div className="flex items-center gap-4">
                   {isClient && !isConnected && <ConnectWallet user={null} />}
-                  <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90" disabled={isSubmitting || !isWalletConnected}>
+                  <Button type="submit" className="bg-accent text-accent-foreground hover:bg-accent/90" disabled={!isWalletConnected || emailExists || isCheckingEmail || isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
                     {isPending ? 'Confirm in wallet...' : isConfirming ? 'Processing transaction...' : 'Register On-Chain'}
                   </Button>

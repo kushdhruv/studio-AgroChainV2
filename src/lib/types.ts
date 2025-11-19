@@ -1,6 +1,5 @@
 
 
-
 export type Role = 'Farmer' | 'Transporter' | 'Industry' | 'Government' | 'Admin' | 'Oracle';
 
 export const ROLES: Role[] = ['Farmer', 'Transporter', 'Industry', 'Government', 'Admin', 'Oracle'];
@@ -18,7 +17,23 @@ export interface User {
   // KYC and Verification
   kycVerified: boolean;
   details: Partial<FarmerDetails> & Partial<TransporterDetails> & Partial<IndustryDetails> & Partial<GovernmentDetails>;
+  metadataHash?: string;
+
+  // Volatile property used only for the approval flow
+  approvalId?: string;
 }
+
+// This is the type for users awaiting KYC approval.
+export interface PendingApproval {
+    id: string; // The document ID from Firestore, added by useCollection
+    userId: string; // The UID of the user
+    name: string;
+    email: string;
+    role: Role;
+    walletAddress?: string; // The user's wallet address
+    submittedAt: any; // Should be a Firestore Timestamp
+    details: any; // The details submitted for KYC
+  }
 
 // Specific detail types for user roles
 export interface FarmerDetails {
@@ -89,6 +104,7 @@ export type ShipmentStatus =
   | 'ReadyForPickup'
   | 'In-Transit' 
   | 'Delivered' 
+  | 'Verified'
   | 'Cancelled' 
   | 'Disputed';
 
@@ -96,6 +112,31 @@ export interface TimelineEvent {
   status: ShipmentStatus | 'Pending';
   timestamp: string; // Should be an ISO 8601 string
   details: string;
+}
+
+export interface LocationPoint {
+    lat: number;
+    lng: number;
+    timestamp: string; // ISO 8601
+}
+
+export interface Weighment {
+    weight: number;
+    timestamp: string; // ISO 8601
+    oracle: string; // Oracle's address
+}
+  
+export interface WeighmentProposal {
+    id: string; // Firestore document ID
+    shipmentId: string;
+    shipmentContent: string;
+    shipmentOrigin: string;
+    shipmentDestination?: string;
+    proposedWeight: number;
+    proposerAddress: string; // Transporter's address
+    status: 'pending' | 'approved' | 'rejected';
+    createdAt: string; // ISO 8601
+    txHash?: string;
 }
 
 export interface Shipment {
@@ -114,6 +155,8 @@ export interface Shipment {
   imageUrl: string;
   imageHint: string;
   timeline: TimelineEvent[];
+  weighments?: Weighment[];
+  locationHistory?: LocationPoint[];
 }
 
 export type DisputeStatus = 'Open' | 'Resolved' | 'Rejected';
