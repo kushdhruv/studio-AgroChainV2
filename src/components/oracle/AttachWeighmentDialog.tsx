@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { useWriteContract, useAccount, useChainId } from 'wagmi';
 import { ShipmentTokenABI } from '@/contracts/ShipmentToken';
 import { contractAddresses } from '@/contracts/addresses';
-import { uploadJsonToIPFS } from '@/lib/actions';
+import { uploadJsonToIPFS, uploadToIPFS } from '@/lib/actions';
 import { doc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import { updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
@@ -23,15 +23,19 @@ import { generateWeighmentPayloadHash, signPayloadHashWithWallet } from '@/lib/o
 
 const formSchema = z.object({
   weighKg: z.coerce.number().positive("Weight must be a positive number."),
+  note: z.string().max(1000).optional(),
 });
 
-export function AttachWeighmentDialog({ shipment }: { shipment: Shipment }) {
+export function AttachWeighmentDialog({ shipment, disabled = false }: { shipment: Shipment; disabled?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
   const firestore = useFirestore();
   const { address: oracleAddress } = useAccount();
   const chainId = useChainId();
   const { writeContractAsync, isPending } = useWriteContract();
+  
+  // Local state for selected file (image)
+  const [file, setFile] = useState<File | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -50,7 +54,7 @@ export function AttachWeighmentDialog({ shipment }: { shipment: Shipment }) {
 
       const timestamp = BigInt(Math.floor(Date.now() / 1000));
       const nonce = BigInt(Date.now());
-      const weighmentDetails = {
+      const weighmentDetails: any = {
         shipmentId: shipment.id,
         weight: values.weighKg,
         timestamp: Number(timestamp),
@@ -58,7 +62,21 @@ export function AttachWeighmentDialog({ shipment }: { shipment: Shipment }) {
         oracle: oracleAddress,
       };
 
-      // 1. Upload weighment details to IPFS for the hash
+      // If a note was provided, include it
+      if (values.note) weighmentDetails.note = values.note;
+
+      // If an image file was selected, upload it first and include CID
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const fileResp = await uploadToIPFS(formData);
+        if (!fileResp.success || !fileResp.ipfsHash) {
+          throw new Error(fileResp.error || 'Failed to upload image to IPFS.');
+        }
+        weighmentDetails.image = fileResp.ipfsHash;
+      }
+
+      // 1. Upload weighment details (with optional text + image CID) to IPFS for the hash
       const ipfsResponse = await uploadJsonToIPFS(weighmentDetails);
       if (!ipfsResponse.success || !ipfsResponse.ipfsHash) {
         throw new Error(ipfsResponse.error || "Could not upload weighment data to IPFS.");
@@ -154,7 +172,7 @@ export function AttachWeighmentDialog({ shipment }: { shipment: Shipment }) {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" disabled={disabled} title={disabled ? 'Attach disabled: payment already claimed' : undefined}>
           <DatabaseZap className="mr-2 h-4 w-4" />
           Attach Data
         </Button>
@@ -181,6 +199,34 @@ export function AttachWeighmentDialog({ shipment }: { shipment: Shipment }) {
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="note"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Note (optional)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Add any context or comments" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div>
+              <FormLabel>Attach Image (optional)</FormLabel>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files ? e.target.files[0] : null;
+                  setFile(f);
+                }}
+                className="mt-2"
+              />
+              {file && <p className="text-sm text-muted-foreground mt-2">Selected: {file.name}</p>}
+            </div>
             <Button type="submit" className="w-full" disabled={isPending}>
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Submit Weighment On-Chain

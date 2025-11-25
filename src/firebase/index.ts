@@ -19,7 +19,7 @@ export const firestore = getFirestore(app);
 export const storage = getStorage(app);
 
 if (process.env.NODE_ENV === "development") {
-  connectFirestoreEmulator(firestore, "127.0.0.1", 8081);
+  connectFirestoreEmulator(firestore, "127.0.0.1", 8082);
   connectAuthEmulator(auth, "http://127.0.0.1:9098");
   console.log("✅ Connected to Firebase local emulators");
 }

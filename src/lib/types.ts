@@ -17,7 +17,7 @@ export interface User {
   // KYC and Verification
   kycVerified: boolean;
   details: Partial<FarmerDetails> & Partial<TransporterDetails> & Partial<IndustryDetails> & Partial<GovernmentDetails>;
-  metadataHash?: string;
+  // metadataHash?: string; // removed to avoid exposing IPFS hash publicly
 
   // Volatile property used only for the approval flow
   approvalId?: string;
@@ -60,6 +60,7 @@ export interface FarmerDetails {
     avgQuantityPerSeasonTonnes?: number;
     currentDisposalMethod?: string;
   };
+  licenseCid?: string; // IPFS CID of uploaded license/certificate
 }
 
 export interface TransporterDetails {
@@ -75,6 +76,7 @@ export interface TransporterDetails {
     serviceAreas?: string[];
     ratePerKm?: number;
   };
+  licenseCid?: string; // IPFS CID of uploaded driving license
 }
 
 export interface IndustryDetails {
@@ -88,6 +90,7 @@ export interface IndustryDetails {
       monthlyRequirementTonnes?: number;
     };
   };
+  licenseCid?: string; // IPFS CID of uploaded company registration certificate
 }
 
 export interface GovernmentDetails {
@@ -103,6 +106,7 @@ export type ShipmentStatus =
   | 'AwaitingPayment'
   | 'ReadyForPickup'
   | 'In-Transit' 
+  | 'Claimed'
   | 'Delivered' 
   | 'Verified'
   | 'Cancelled' 
@@ -157,6 +161,9 @@ export interface Shipment {
   timeline: TimelineEvent[];
   weighments?: Weighment[];
   locationHistory?: LocationPoint[];
+  // Optional timestamps set via updateFirestoreStatus extraData
+  claimedAt?: string;
+  releasedAt?: string;
 }
 
 export type DisputeStatus = 'Open' | 'Resolved' | 'Rejected';

@@ -15,6 +15,7 @@ const statusColors: { [key in Shipment['status']]: string } = {
   'AwaitingPayment': "bg-orange-100 text-orange-800 border-orange-300",
   'ReadyForPickup': "bg-blue-100 text-blue-800 border-blue-300",
   'In-Transit': "bg-indigo-100 text-indigo-800 border-indigo-300",
+  'Claimed': "bg-teal-100 text-teal-800 border-teal-300",
   'Delivered': "bg-green-100 text-green-800 border-green-300",
   'Verified': "bg-emerald-100 text-emerald-800 border-emerald-300",
   'Cancelled': "bg-red-100 text-red-800 border-red-300",
@@ -102,7 +103,7 @@ export function ShipmentCard({ shipment }: { shipment: Shipment }) {
 
       <CardFooter className="p-4 bg-secondary/50 flex justify-between items-center">
         <div className="font-bold text-lg font-headline">
-          ₹{shipment.askPrice.toLocaleString()}
+          {shipment.askPrice.toLocaleString()}AGT
         </div>
         <Button asChild size="sm">
           <Link href={`/dashboard/shipments/${shipment.id}`}>View Details</Link>

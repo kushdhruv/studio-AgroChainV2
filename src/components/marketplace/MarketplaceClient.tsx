@@ -10,9 +10,13 @@ export function MarketplaceClient({ shipments }: { shipments: Shipment[] }) {
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredShipments = shipments.filter(shipment =>
-    shipment.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    shipment.origin.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (shipment.destination && shipment.destination.toLowerCase().includes(searchTerm.toLowerCase()))
+    // Exclude shipments that were claimed more than 5 minutes ago
+    (shipment.status !== 'Claimed' || !shipment.claimedAt || (Date.now() - new Date(shipment.claimedAt).getTime()) <= 5 * 60 * 1000) &&
+    (
+      shipment.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      shipment.origin.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (shipment.destination && shipment.destination.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
   );
 
   return (

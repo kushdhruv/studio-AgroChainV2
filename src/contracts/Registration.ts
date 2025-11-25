@@ -48,6 +48,19 @@ export const RegistrationABI = [
     "outputs": [
       { "name": "role", "type": "uint8" },
       { "name": "kyc", "type": "uint8" },
+      { "name": "createdAt", "type": "uint256" },
+      { "name": "updatedAt", "type": "uint256" },
+      { "name": "active", "type": "bool" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getParticipantFull",
+    "inputs": [{ "name": "_addr", "type": "address" }],
+    "outputs": [
+      { "name": "role", "type": "uint8" },
+      { "name": "kyc", "type": "uint8" },
       { "name": "metadataHash", "type": "string" },
       { "name": "createdAt", "type": "uint256" },
       { "name": "updatedAt", "type": "uint256" },
@@ -90,6 +103,27 @@ export const RegistrationABI = [
     "outputs": [],
     "stateMutability": "nonpayable",
     "note": "Can be called by any active participant, critical updates will set KYC to PENDING"
+  },
+  {
+    "type": "function",
+    "name": "setKycStatus",
+    "inputs": [
+      { "name": "_participant", "type": "address" },
+      { "name": "_status", "type": "uint8" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "note": "Owner only. Set KYC status for a participant (PENDING=1, VERIFIED=2, SUSPENDED=3, REVOKED=4)"
+  },
+  {
+    "type": "function",
+    "name": "revokeParticipant",
+    "inputs": [
+      { "name": "_participant", "type": "address" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "note": "Owner only. Revokes participant and sets active=false"
   },
   {
     "type": "event",

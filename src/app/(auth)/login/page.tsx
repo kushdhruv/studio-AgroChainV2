@@ -15,7 +15,7 @@ import { useAccount, useConnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { Separator } from '@/components/ui/separator';
 import { readContract } from 'wagmi/actions';
-import { config } from '@/components/blockchain/WagmiProvider';
+import { config } from '@/lib/wagmi';
 import { RegistrationABI } from '@/contracts/Registration';
 import { getContractAddress } from '@/contracts/addresses';
 import { onChainRoleMap } from '@/lib/constants';

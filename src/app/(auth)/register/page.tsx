@@ -23,12 +23,6 @@ const roles: { name: Role; description: string; icon: React.ReactNode; href: str
     icon: <Building className="h-8 w-8 text-accent" />,
     href: '/register/industry',
   },
-  {
-    name: 'Government',
-    description: 'Register for oversight and analytics access.',
-    icon: <Landmark className="h-8 w-8 text-accent" />,
-    href: '/register/government',
-  },
 ];
 
 export default function RegisterPage() {

@@ -14,11 +14,11 @@ import { Separator } from "../ui/separator";
 import { Textarea } from "../ui/textarea";
 import { useFirestore, useUser } from "@/firebase";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
-import { uploadJsonToIPFS } from "@/lib/actions";
+import { uploadJsonToIPFS, uploadToIPFS } from "@/lib/actions";
 import { useAccount, useWriteContract } from "wagmi";
 import { RegistrationABI } from "@/contracts/Registration";
 import { contractAddresses } from "@/contracts/addresses";
-import { Loader2 } from "lucide-react";
+import { Loader2, Upload, FileText, X } from "lucide-react";
 import { useState } from "react";
 
 // Base schema for editable fields common to all users
@@ -42,6 +42,7 @@ const farmerKycSchema = baseSchema.extend({
   wasteTypes: z.string().min(3, "Enter at least one waste type."),
   avgQuantityPerSeasonTonnes: z.coerce.number().positive("Must be a positive number."),
   currentDisposalMethod: z.string().min(3, "Disposal method is required."),
+  licenseCid: z.string().optional(),
 });
 
 const transporterKycSchema = baseSchema.extend({
@@ -51,6 +52,7 @@ const transporterKycSchema = baseSchema.extend({
     vehicleType: z.enum(["Truck", "Tractor", "Other"]),
     capacityTonnes: z.coerce.number().positive("Must be a positive number."),
     serviceAreas: z.string().min(3, "Enter service areas."),
+    licenseCid: z.string().optional(),
 });
 
 const industryKycSchema = baseSchema.extend({
@@ -60,6 +62,7 @@ const industryKycSchema = baseSchema.extend({
     processingCapacityTonnesPerDay: z.coerce.number().positive("Must be a positive number."),
     wasteTypes: z.string().min(3, "Waste type is required."),
     monthlyRequirementTonnes: z.coerce.number().positive("Must be a positive number."),
+    licenseCid: z.string().optional(),
 });
 
 const governmentKycSchema = baseSchema.extend({
@@ -94,6 +97,9 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
   const { address: walletAddress } = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [licenseFile, setLicenseFile] = useState<File | null>(null);
+  const [uploadingLicense, setUploadingLicense] = useState(false);
+  const [uploadedLicenseCid, setUploadedLicenseCid] = useState<string | null>(userProfile.details?.licenseCid || null);
   
   const formSchema = getSchema(userProfile.role);
 
@@ -143,6 +149,63 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
       defaultValues,
   });
 
+  const handleLicenseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "File Too Large",
+        description: "Please upload a file smaller than 5MB.",
+      });
+      return;
+    }
+
+    // Validate file type
+    const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid File Type",
+        description: "Please upload a PDF, JPG, or PNG file.",
+      });
+      return;
+    }
+
+    setUploadingLicense(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const result = await uploadToIPFS(formData);
+
+      if (!result.success || !result.ipfsHash) {
+        throw new Error(result.error || "Failed to upload file");
+      }
+
+      setUploadedLicenseCid(result.ipfsHash);
+      setLicenseFile(file);
+      toast({
+        title: "Document Uploaded",
+        description: "Your license/certificate has been uploaded to IPFS successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: error.message || "Failed to upload document.",
+      });
+    } finally {
+      setUploadingLicense(false);
+    }
+  };
+
+  const removeLicenseFile = () => {
+    setLicenseFile(null);
+    setUploadedLicenseCid(null);
+  };
+
   async function onSubmit(values: any) {
     if (!user || !walletAddress) {
         toast({
@@ -168,6 +231,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
             };
             updatedDetails.crops = { primaryCrops: v.primaryCrops.split(',').map(s => s.trim()), croppingSeason: v.croppingSeason };
             updatedDetails.waste = { wasteTypes: v.wasteTypes.split(',').map(s => s.trim()), avgQuantityPerSeasonTonnes: v.avgQuantityPerSeasonTonnes, currentDisposalMethod: v.currentDisposalMethod };
+            if (uploadedLicenseCid) updatedDetails.licenseCid = uploadedLicenseCid;
             detailsJson.farmer = updatedDetails;
         } else if (userProfile.role === 'Transporter') {
             const v = values as z.infer<typeof transporterKycSchema>;
@@ -175,6 +239,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
             updatedDetails.licenseNumber = v.licenseNumber;
             updatedDetails.vehicle = { registrationNumber: v.registrationNumber, vehicleType: v.vehicleType, capacityTonnes: v.capacityTonnes };
             updatedDetails.employment = { serviceAreas: v.serviceAreas.split(',').map(s => s.trim()) };
+            if (uploadedLicenseCid) updatedDetails.licenseCid = uploadedLicenseCid;
             detailsJson.transporter = updatedDetails;
         } else if (userProfile.role === 'Industry') {
             const v = values as z.infer<typeof industryKycSchema>;
@@ -188,6 +253,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                     monthlyRequirementTonnes: v.monthlyRequirementTonnes
                 }
             };
+            if (uploadedLicenseCid) updatedDetails.licenseCid = uploadedLicenseCid;
             detailsJson.industry = updatedDetails;
         } else if (userProfile.role === 'Government') {
             const v = values as z.infer<typeof governmentKycSchema>;
@@ -315,6 +381,72 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
               <FormItem className="md:col-span-2"><FormLabel>Current Disposal Method</FormLabel><FormControl><Input placeholder="e.g., Burning" {...field} /></FormControl><FormMessage /></FormItem>
             )} />
           </div>
+          <Separator />
+          <h4 className="font-semibold">License / Certificate Upload</h4>
+          <FormItem>
+            <FormLabel>Upload License or Certificate</FormLabel>
+            <FormControl>
+              <Input
+                id="farmer-license-upload"
+                type="file"
+                className="hidden"
+                onChange={handleLicenseUpload}
+                accept="application/pdf,image/jpeg,image/png,image/jpg"
+                disabled={uploadingLicense || isSubmitting}
+              />
+            </FormControl>
+            <label
+              htmlFor="farmer-license-upload"
+              className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg bg-secondary relative ${
+                uploadingLicense || isSubmitting ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted'
+              }`}
+            >
+              {uploadedLicenseCid ? (
+                <div className="flex flex-col items-center justify-center p-4">
+                  <FileText className="w-8 h-8 mb-2 text-green-600" />
+                  <p className="text-sm font-medium text-green-600">Document Uploaded</p>
+                  <p className="text-xs text-muted-foreground mt-1">CID: {uploadedLicenseCid.slice(0, 8)}...{uploadedLicenseCid.slice(-8)}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      removeLicenseFile();
+                    }}
+                  >
+                    <X className="w-4 h-4 mr-1" /> Remove
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  {uploadingLicense ? (
+                    <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" />
+                  ) : (
+                    <Upload className="w-8 h-8 mb-4 text-muted-foreground" />
+                  )}
+                  <p className="mb-2 text-sm text-muted-foreground">
+                    <span className="font-semibold">{uploadingLicense ? 'Uploading...' : 'Click to upload'}</span> or drag and drop
+                  </p>
+                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG (MAX. 5MB)</p>
+                </div>
+              )}
+            </label>
+            <FormDescription>
+              Upload your farming license or land ownership certificate. Stored securely on IPFS.
+              {uploadedLicenseCid && (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 text-accent underline"
+                >
+                  View Document
+                </a>
+              )}
+            </FormDescription>
+          </FormItem>
         </>;
       case 'Transporter':
         return <>
@@ -340,6 +472,22 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                   <FormItem><FormLabel>Service Areas</FormLabel><FormControl><Input placeholder="e.g. Lucknow, Kanpur" {...field} /></FormControl><FormDescription>Comma-separated.</FormDescription><FormMessage /></FormItem>
               )} />
             </div>
+            <Separator />
+            <h4 className="font-semibold">License / Certificate Upload</h4>
+            <FormItem>
+              <FormLabel>Upload Driving License</FormLabel>
+              <FormControl>
+                <Input id="transporter-license-upload" type="file" className="hidden" onChange={handleLicenseUpload} accept="application/pdf,image/jpeg,image/png,image/jpg" disabled={uploadingLicense || isSubmitting} />
+              </FormControl>
+              <label htmlFor="transporter-license-upload" className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg bg-secondary relative ${uploadingLicense || isSubmitting ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted'}`}>
+                {uploadedLicenseCid ? (
+                  <div className="flex flex-col items-center justify-center p-4"><FileText className="w-8 h-8 mb-2 text-green-600" /><p className="text-sm font-medium text-green-600">Document Uploaded</p><p className="text-xs text-muted-foreground mt-1">CID: {uploadedLicenseCid.slice(0, 8)}...{uploadedLicenseCid.slice(-8)}</p><Button type="button" variant="ghost" size="sm" className="mt-2" onClick={(e) => { e.preventDefault(); removeLicenseFile(); }}><X className="w-4 h-4 mr-1" /> Remove</Button></div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">{uploadingLicense ? <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" /> : <Upload className="w-8 h-8 mb-4 text-muted-foreground" />}<p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">{uploadingLicense ? 'Uploading...' : 'Click to upload'}</span> or drag and drop</p><p className="text-xs text-muted-foreground">PDF, JPG, PNG (MAX. 5MB)</p></div>
+                )}
+              </label>
+              <FormDescription>Upload your driving license. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
+            </FormItem>
         </>;
       case 'Industry':
         return <>
@@ -368,6 +516,22 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                   <FormItem><FormLabel>Monthly Requirement (Tonnes)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
             </div>
+            <Separator />
+            <h4 className="font-semibold">License / Certificate Upload</h4>
+            <FormItem>
+              <FormLabel>Upload Company Registration Certificate</FormLabel>
+              <FormControl>
+                <Input id="industry-license-upload" type="file" className="hidden" onChange={handleLicenseUpload} accept="application/pdf,image/jpeg,image/png,image/jpg" disabled={uploadingLicense || isSubmitting} />
+              </FormControl>
+              <label htmlFor="industry-license-upload" className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg bg-secondary relative ${uploadingLicense || isSubmitting ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted'}`}>
+                {uploadedLicenseCid ? (
+                  <div className="flex flex-col items-center justify-center p-4"><FileText className="w-8 h-8 mb-2 text-green-600" /><p className="text-sm font-medium text-green-600">Document Uploaded</p><p className="text-xs text-muted-foreground mt-1">CID: {uploadedLicenseCid.slice(0, 8)}...{uploadedLicenseCid.slice(-8)}</p><Button type="button" variant="ghost" size="sm" className="mt-2" onClick={(e) => { e.preventDefault(); removeLicenseFile(); }}><X className="w-4 h-4 mr-1" /> Remove</Button></div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">{uploadingLicense ? <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" /> : <Upload className="w-8 h-8 mb-4 text-muted-foreground" />}<p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">{uploadingLicense ? 'Uploading...' : 'Click to upload'}</span> or drag and drop</p><p className="text-xs text-muted-foreground">PDF, JPG, PNG (MAX. 5MB)</p></div>
+                )}
+              </label>
+              <FormDescription>Upload your company registration or incorporation certificate. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
+            </FormItem>
         </>;
       case 'Government':
         return <>

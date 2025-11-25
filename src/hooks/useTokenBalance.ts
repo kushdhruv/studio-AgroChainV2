@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { readContract } from 'wagmi/actions';
-import { config } from '@/components/blockchain/WagmiProvider';
+import { config } from '@/lib/wagmi';
 import { formatEther } from 'viem';
 
 // Minimal ERC20 ABI for balanceOf

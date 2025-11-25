@@ -11,7 +11,7 @@ import { toast } from 'react-hot-toast';
 import { useAccount, useConnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { readContract } from 'wagmi/actions';
-import { config } from '@/components/blockchain/WagmiProvider';
+import { config } from '@/lib/wagmi';
 import { RegistrationABI } from '@/contracts/Registration';
 import { OracleManagerABI } from '@/contracts/OracleManager';
 import { getContractAddress } from '@/contracts/addresses';
@@ -109,7 +109,7 @@ export default function OracleLogin({ onSuccess }: OracleLoginProps) {
         chainId: chainId,
       });
 
-      const [role, , , , , active] = participantData as [bigint, bigint, bigint, string, string, boolean];
+      const [role, , , , active] = participantData as [bigint, bigint, bigint, bigint, boolean];
       const isOracleOnChain = Number(role) === onChainRoleMap.Oracle && active;
 
       if (!isOracleOnChain) {

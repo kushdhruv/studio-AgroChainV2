@@ -23,7 +23,7 @@ export default function ActiveShipmentsPage() {
     if (!user || !userProfile) return null;
 
     const shipmentsRef = collection(firestore, 'shipments');
-    const activeStatuses = ['OfferMade', 'AwaitingPayment', 'ReadyForPickup', 'In-Transit'];
+    const activeStatuses = ['OfferMade', 'AwaitingPayment', 'ReadyForPickup', 'In-Transit', 'Claimed'];
     
     // This query is slightly broader to catch all possibilities, and we will filter on the client.
     // It fetches shipments where the user's UID is involved OR the user's wallet address is the transporter.

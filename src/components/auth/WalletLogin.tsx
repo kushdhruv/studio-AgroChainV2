@@ -10,7 +10,7 @@ import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { injected } from 'wagmi/connectors';
 import { toast } from 'react-hot-toast';
 import { readContract } from 'wagmi/actions';
-import { config } from '@/components/blockchain/WagmiProvider';
+import { config } from '@/lib/wagmi';
 import { RegistrationABI } from '@/contracts/Registration';
 import { OracleManagerABI } from '@/contracts/OracleManager';
 import { getContractAddress } from '@/contracts/addresses';
@@ -126,7 +126,7 @@ export default function WalletLogin() {
         chainId: chainId,
       });
 
-      const [, , , , , active] = participantData as [bigint, bigint, bigint, string, string, boolean];
+      const [, , , , active] = participantData as [bigint, bigint, bigint, bigint, boolean];
 
       // If registration says not active, allow OracleManager fallback for Oracle role
       if (!active) {

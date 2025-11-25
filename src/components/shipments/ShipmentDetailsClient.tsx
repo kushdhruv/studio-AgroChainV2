@@ -26,12 +26,12 @@ import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { uploadJsonToIPFS } from '@/lib/actions';
 import { parseEther, decodeEventLog } from 'viem';
-import { readContract } from 'wagmi/actions';
-import { config } from '@/components/blockchain/WagmiProvider';
+import { readContract, waitForTransactionReceipt } from 'wagmi/actions';
+import { config } from '@/lib/wagmi';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { getAddress } from 'ethers';
-//import { config } from '@/components/blockchain/WagmiProvider';
+
 
 const statusColors: { [key in Shipment['status']]: string } = {
     Pending: "bg-yellow-100 text-yellow-800 border-yellow-300",
@@ -39,6 +39,7 @@ const statusColors: { [key in Shipment['status']]: string } = {
     AwaitingPayment: "bg-orange-100 text-orange-800 border-orange-300",
     ReadyForPickup: "bg-blue-100 text-blue-800 border-blue-300",
     "In-Transit": "bg-indigo-100 text-indigo-800 border-indigo-300",
+    Claimed: "bg-amber-100 text-amber-800 border-amber-300",
     Delivered: "bg-green-100 text-green-800 border-green-300",
     Verified: "bg-emerald-100 text-emerald-800 border-emerald-300",
     Cancelled: "bg-red-100 text-red-800 border-red-300",
@@ -53,6 +54,7 @@ const onChainStatusMap: { [key in Shipment['status']]: number } = {
   AwaitingPayment: 2,
   ReadyForPickup: 2,  // Both map to IN_TRANSIT (2)
   "In-Transit": 2,    // IN_TRANSIT
+  Claimed: 3,
   Delivered: 3,       // DELIVERED
   Verified: 4,        // VERIFIED
   Cancelled: 7,       // CANCELLED
@@ -66,6 +68,7 @@ const timelineIcons: { [key: string]: React.ReactNode } = {
     ReadyForPickup: <Package className="h-5 w-5 text-blue-500" />,
     "In-Transit": <Truck className="h-5 w-5 text-indigo-500" />,
     Delivered: <CheckCircle className="h-5 w-5 text-green-500" />,
+    Claimed: <CheckCircle className="h-5 w-5 text-amber-500" />,
     Disputed: <ShieldAlert className="h-5 w-5 text-purple-500" />,
     default: <Package className="h-5 w-5" />,
 };
@@ -896,13 +899,21 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
             address: contractAddresses.EscrowPayment,
             functionName: 'releasePayment',
             args: [shipment.shipmentIdOnChain as `0x${string}`],
-        }) as string;
+        });
 
-        toast({ title: 'Release Transaction Sent', description: 'Waiting for confirmation...' });
+        toast({ title: 'Transaction Sent', description: 'Waiting for confirmation...' });
 
-        // Update Firestore status after transaction is sent
-        updateFirestoreStatus('Delivered', 'Payment released to Farmer and Transporter.');
-        
+        // Wait for transaction receipt
+        const receipt = await waitForTransactionReceipt(config, { hash: txHash });
+
+        if (receipt.status !== 'success') {
+             throw new Error('Transaction failed on-chain.');
+        }
+
+        // Optionally record the on-chain release timestamp, but keep status as 'Claimed'
+        const releasedAt = new Date().toISOString();
+        updateFirestoreStatus('Claimed', 'Payment released on-chain.', { releasedAt });
+
         toast({ 
           title: '✅ Payment Released Successfully!', 
           description: 'Funds have been transferred to Farmer, Transporter, and Platform.' 

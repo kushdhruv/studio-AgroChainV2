@@ -57,7 +57,7 @@ export default function ContractStateViewer() {
     };
 
     // --- Registration ---
-    const { read: getParticipant, isFetching: isFetchingParticipant } = useContractRead(RegistrationABI, contractAddresses.Registration, 'getParticipant', [address]);
+    const { read: getParticipantFull, isFetching: isFetchingParticipant } = useContractRead(RegistrationABI, contractAddresses.Registration, 'getParticipantFull', [address]);
     const { read: hasRole, isFetching: isFetchingHasRole } = useContractRead(RegistrationABI, contractAddresses.Registration, 'hasRole', [address, parseInt(role)]);
     const { read: isKycVerified, isFetching: isFetchingKycVerified } = useContractRead(RegistrationABI, contractAddresses.Registration, 'isKycVerified', [address]);
     const { read: kycStatus, isFetching: isFetchingKycStatus } = useContractRead(RegistrationABI, contractAddresses.Registration, 'kycStatus', [address]);
@@ -107,7 +107,7 @@ export default function ContractStateViewer() {
                             <div className="space-y-4">
                                 <Label>Address:</Label>
                                 <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="0x..." />
-                                <Button onClick={() => getParticipant()} disabled={isFetching}>getParticipant</Button>
+                                <Button onClick={() => getParticipantFull()} disabled={isFetching}>getParticipantFull</Button>
                                 <Button onClick={() => isKycVerified()} disabled={isFetching}>isKycVerified</Button>
                                 <Button onClick={() => kycStatus()} disabled={isFetching}>kycStatus</Button>
                                 <div className='flex items-center gap-2'>

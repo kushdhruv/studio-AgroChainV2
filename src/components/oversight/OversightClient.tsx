@@ -1,8 +1,6 @@
 'use client';
 
-import Image from 'next/image';
 import type { Shipment } from '@/lib/types';
-import { placeholderImages } from '@/lib/placeholder-images';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +13,7 @@ const statusColors: { [key in Shipment['status']]: string } = {
     AwaitingPayment: "bg-orange-100 text-orange-800 border-orange-300",
     ReadyForPickup: "bg-blue-100 text-blue-800 border-blue-300",
     "In-Transit": "bg-indigo-100 text-indigo-800 border-indigo-300",
+    Claimed: "bg-amber-100 text-amber-800 border-amber-300",
     Delivered: "bg-green-100 text-green-800 border-green-300",
     Verified: "bg-emerald-100 text-emerald-800 border-emerald-300",
     Cancelled: "bg-red-100 text-red-800 border-red-300",
@@ -22,32 +21,8 @@ const statusColors: { [key in Shipment['status']]: string } = {
 };
 
 export function OversightClient({ shipments }: { shipments: Shipment[] }) {
-  const mapImage = placeholderImages.find(p => p.id === 'map-background');
-
   return (
     <div className="space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-headline">Shipment Map</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-muted">
-            {mapImage && (
-                <Image
-                    src={mapImage.imageUrl}
-                    alt={mapImage.description}
-                    fill
-                    className="object-cover"
-                    data-ai-hint={mapImage.imageHint}
-                />
-            )}
-            <div className="absolute inset-0 flex items-center justify-center">
-                <p className="text-muted-foreground text-lg">Live map view coming soon</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-      
       <Card>
         <CardHeader>
           <CardTitle className="font-headline">All Shipments</CardTitle>
