@@ -1,5 +1,7 @@
 # AgriChain Frontend Application
 
+[Blockchain contracts are in https://github.com/kushdhruv/Agro_blockchain_contracts]
+
 Modern, type-safe Next.js application for the AgriChain agricultural supply chain platform.
 
 ## 🚀 Quick Start
