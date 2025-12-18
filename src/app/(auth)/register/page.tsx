@@ -29,7 +29,7 @@ export default function RegisterPage() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="font-headline text-2xl">Join AgriChain</CardTitle>
+        <CardTitle className="font-headline text-2xl">Join AgroChain</CardTitle>
         <CardDescription>Choose your role to get started.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -31,7 +31,7 @@ const resolutionMap = {
     RELEASE_FUNDS: 2,
 };
 
-function ResolveDisputeForm({ dispute, onResolved }: { dispute: Dispute, onResolved: () => void }) {
+function ResolveDisputeForm({ dispute, shipmentId, onResolved }: { dispute: Dispute, shipmentId: string, onResolved: () => void }) {
     const { toast } = useToast();
     const { writeContractAsync, isPending } = useWriteContract();
     const [resolution, setResolution] = useState<'REFUND_PAYER' | 'RELEASE_FUNDS'>();
@@ -54,14 +54,25 @@ function ResolveDisputeForm({ dispute, onResolved }: { dispute: Dispute, onResol
                 args: [BigInt(dispute.disputeIdOnChain), resolutionId, note],
             });
 
+            // Update Dispute Status
             const disputeRef = doc(firestore, 'disputes', dispute.id);
             updateDocumentNonBlocking(disputeRef, {
                 status: 'Resolved',
                 resolution,
                 resolutionNote: note,
             });
+
+            // Update Shipment Status based on resolution
+            const shipmentRef = doc(firestore, 'shipments', shipmentId);
+            const newShipmentStatus = resolution === 'RELEASE_FUNDS' ? 'Claimed' : 'Cancelled';
             
-            toast({ title: 'Dispute Resolution Sent', description: 'Please confirm the transaction in your wallet.'});
+            updateDocumentNonBlocking(shipmentRef, {
+                status: newShipmentStatus,
+                // Add timestamp for the action
+                [resolution === 'RELEASE_FUNDS' ? 'releasedAt' : 'cancelledAt']: new Date().toISOString()
+            });
+            
+            toast({ title: 'Dispute Resolved', description: `Dispute resolved and shipment marked as ${newShipmentStatus}.`});
             onResolved();
 
         } catch (e: any) {
@@ -73,7 +84,7 @@ function ResolveDisputeForm({ dispute, onResolved }: { dispute: Dispute, onResol
         <Card className="bg-secondary">
             <CardHeader>
                 <CardTitle className="font-headline">Resolve Dispute</CardTitle>
-                <CardDescription>As an admin/resolver, you can resolve this dispute on-chain.</CardDescription>
+                <CardDescription>As an authorized resolver, you can resolve this dispute on-chain.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <Select onValueChange={(v) => setResolution(v as 'REFUND_PAYER' | 'RELEASE_FUNDS')}>
@@ -100,12 +111,13 @@ function ResolveDisputeForm({ dispute, onResolved }: { dispute: Dispute, onResol
 }
 
 export function DisputeDetailsClient({ dispute, shipment, userProfile }: { dispute: Dispute, shipment: Shipment, userProfile: AppUser }) {
-    const ipfsGateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+    const ipfsGateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://ipfs.io";
     
     // State to optimistically update UI
     const [currentDispute, setCurrentDispute] = useState(dispute);
     
-    const canResolve = userProfile.role === 'Admin' && currentDispute.status === 'Open';
+    // Allow Admin OR Government to resolve
+    const canResolve = (userProfile.role === 'Admin' || userProfile.role === 'Government') && currentDispute.status === 'Open';
 
     return (
         <div className="grid gap-8 lg:grid-cols-3">
@@ -139,7 +151,7 @@ export function DisputeDetailsClient({ dispute, shipment, userProfile }: { dispu
                     </CardContent>
                 </Card>
 
-                {canResolve && <ResolveDisputeForm dispute={currentDispute} onResolved={() => setCurrentDispute(prev => ({ ...prev, status: 'Resolved' }))} />}
+                {canResolve && <ResolveDisputeForm dispute={currentDispute} shipmentId={shipment.id} onResolved={() => setCurrentDispute(prev => ({ ...prev, status: 'Resolved' }))} />}
 
                 <Card>
                     <CardHeader>

@@ -144,24 +144,19 @@ function UserDetailsPopup({ userId, userRole }: { userId: string; userRole: Role
     )
 }
 
-export function RaiseDisputeDialog({
-  shipment,
-  userProfile,
-  onDisputeRaised,
-}: {
-  shipment: Shipment;
-  userProfile: AppUser;
-  onDisputeRaised: () => void;
+export function RaiseDisputeDialog({ 
+  shipment, 
+  userProfile, 
+  onDisputeRaised, 
+}: { 
+  shipment: Shipment; 
+  userProfile: AppUser; 
+  onDisputeRaised: () => void; 
 }) {
   // --- STATE AND HOOKS ---
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [pendingDispute, setPendingDispute] = useState<{
-    reason: string;
-    evidenceHash: string;
-  } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [disputeId, setDisputeId] = useState<number>(-1); // State for the final ID
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { toast } = useToast();
   const { user } = useUser();
@@ -169,126 +164,10 @@ export function RaiseDisputeDialog({
   const { address: walletAddress } = useAccount();
 
   // --- WAGMI HOOKS ---
-  // Hook to write to the contract
-  const { 
-    data: txHash, 
-    isPending: isWritingContract, 
-    writeContractAsync 
-  } = useWriteContract();
-
-  // Hook to wait for the transaction to be confirmed
-  const { 
-    data: receipt, 
-    isLoading: isConfirming, 
-    isSuccess: isTransactionSuccessful 
-  } = useWaitForTransactionReceipt({ 
-    hash: txHash,
-    query: { 
-      enabled: !!txHash // Only runs when txHash has a value
-    } 
-  });
-
-  // This combines all loading states for the UI
-  const isSubmitting = isUploading || isWritingContract || isConfirming;
-
-  // --- EFFECT TO HANDLE TRANSACTION CONFIRMATION ---
-  useEffect(() => {
-    // This runs ONLY when the transaction is successful AND we have pending data
-    if (isTransactionSuccessful && receipt && pendingDispute) {
-      
-      (async () => {
-        // ✅ FIX: Add a guard clause for user and wallet
-        // This stops the "'user' is possibly 'null'" error
-        if (!user || !walletAddress) {
-          toast({
-            variant: 'destructive',
-            title: 'Authentication Error',
-            description: 'User or wallet disconnected during transaction.',
-          });
-          setPendingDispute(null); // Clear pending state
-          return;
-        }
-
-        let foundDisputeId = -1; // Use a local variable
-        try {
-          // 3️⃣ Parse DisputeRaised event to get dispute ID
-          for (const log of receipt.logs) {
-            try {
-              const decoded = decodeEventLog({
-                abi: DisputeManagerABI, // No 'as const' needed here
-                data: log.data as `0x${string}`,
-                topics: log.topics as any,
-              });
-              if (decoded.eventName === 'DisputeRaised' && decoded.args) {
-                // ✅ FIX: Use '(decoded.args as any)' to bypass
-                // TypeScript's "readonly unknown[]" error.
-                foundDisputeId = Number((decoded.args as any).disputeId);
-                break;
-              }
-            } catch (e) { /* Not the right event, continue */ }
-          }
-
-          if (foundDisputeId === -1) {
-            throw new Error('Failed to extract dispute ID from transaction event.');
-          }
-
-          // 4️⃣ Firestore updates with actual dispute ID
-          updateDocumentNonBlocking(doc(firestore, 'shipments', shipment.id), { status: 'Disputed' });
-
-          setDocumentNonBlocking(doc(firestore, 'disputes', foundDisputeId.toString()), {
-            disputeIdOnChain: foundDisputeId,
-            shipmentId: shipment.id,
-            shipmentIdOnChain: shipment.shipmentIdOnChain,
-            raiserId: user.uid, // This is now safe
-            raiserWallet: walletAddress, // This is now safe
-            reason: pendingDispute.reason, // Use data from state
-            status: 'Open',
-            evidence: [
-              {
-                submitterId: user.uid, // This is now safe
-                evidenceHash: pendingDispute.evidenceHash, // Use data from state
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          });
-
-          // 5️⃣ Success!
-          setDisputeId(foundDisputeId); // Set the final ID to state
-          onDisputeRaised();
-          setIsOpen(false);
-          toast({
-            title: 'Dispute Successfully Raised!',
-            description: `Dispute ID: ${foundDisputeId}`,
-          });
-
-        } catch (e: any) {
-          toast({
-            variant: 'destructive',
-            title: 'Failed to Process Transaction',
-            description: e.message,
-          });
-        } finally {
-          // CRITICAL: Clear the pending state so this doesn't run again
-          setPendingDispute(null);
-        }
-      })();
-    }
-  }, [
-    isTransactionSuccessful, 
-    receipt, 
-    pendingDispute, 
-    firestore, 
-    shipment, 
-    user, 
-    walletAddress, 
-    onDisputeRaised, 
-    setIsOpen, 
-    toast
-  ]);
+  const { writeContractAsync } = useWriteContract();
 
   // --- SUBMIT HANDLER ---
   const handleSubmitDispute = async () => {
-    // This check already correctly handles the "'user' is null" error
     if (!reason) {
       toast({
         variant: 'destructive',
@@ -306,12 +185,12 @@ export function RaiseDisputeDialog({
       return;
     }
 
-    setIsUploading(true); // Use a separate state for IPFS upload
-    setPendingDispute(null); // Reset pending state
+    setIsSubmitting(true);
     let evidenceHash = '';
 
     try {
       // 1️⃣ Upload evidence to IPFS
+      toast({ title: 'Uploading Evidence...', description: 'Storing dispute details on IPFS.' });
       const evidenceResponse = await uploadJsonToIPFS({
         raiser: user.uid,
         reason,
@@ -323,47 +202,98 @@ export function RaiseDisputeDialog({
       }
       evidenceHash = evidenceResponse.ipfsHash;
 
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'IPFS Upload Failed', description: e.message });
-      setIsUploading(false);
-      return;
-    }
-    
-    setIsUploading(false); // IPFS upload is done
-
-    try {
-      // Store data needed for the useEffect *before* sending tx
-      setPendingDispute({ reason, evidenceHash });
-
       // 2️⃣ Trigger dispute smart contract
-      await writeContractAsync({
+      toast({ title: 'Submitting Dispute...', description: 'Please confirm the transaction in your wallet.' });
+      
+      const txHash = await writeContractAsync({
         abi: DisputeManagerABI,
         address: contractAddresses.DisputeManager,
         functionName: 'raiseDispute',
         args: [shipment.shipmentIdOnChain as `0x${string}`, evidenceHash],
       });
 
+      toast({ title: 'Transaction Sent', description: 'Waiting for blockchain confirmation...' });
+
+      // 3️⃣ Wait for transaction receipt
+      const receipt = await waitForTransactionReceipt(config, { hash: txHash });
+
+      if (receipt.status !== 'success') {
+        throw new Error('Transaction failed on-chain.');
+      }
+
+      // 4️⃣ Parse DisputeRaised event to get dispute ID
+      let foundDisputeId = -1;
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: DisputeManagerABI,
+            data: log.data as `0x${string}`,
+            topics: log.topics as any,
+          });
+          if (decoded.eventName === 'DisputeRaised' && decoded.args) {
+            foundDisputeId = Number((decoded.args as any).disputeId);
+            break;
+          }
+        } catch (e) { /* Not the right event, continue */ }
+      }
+
+      if (foundDisputeId === -1) {
+        // Fallback: if we can't find the ID, we still mark it as disputed but maybe log an error
+        console.error('Could not find DisputeId in logs');
+        // We might want to throw here, or just proceed with a warning. 
+        // Proceeding allows the UI to update even if we missed the ID (which shouldn't happen).
+      }
+
+      // 5️⃣ Firestore updates
+      // Update shipment status
+      updateDocumentNonBlocking(doc(firestore, 'shipments', shipment.id), { status: 'Disputed' });
+
+      // Create dispute record
+      const relatedUserIds = [shipment.farmerId, shipment.industryId, shipment.transporterId, user.uid].filter(Boolean) as string[];
+      const uniqueRelatedUserIds = Array.from(new Set(relatedUserIds));
+
+      setDocumentNonBlocking(doc(firestore, 'disputes', foundDisputeId !== -1 ? foundDisputeId.toString() : `tx-${txHash}`), {
+        disputeIdOnChain: foundDisputeId,
+        shipmentId: shipment.id,
+        shipmentIdOnChain: shipment.shipmentIdOnChain,
+        raiserId: user.uid,
+        raiserWallet: walletAddress,
+        reason: reason,
+        status: 'Open',
+        evidence: [
+          {
+            submitterId: user.uid,
+            evidenceHash: evidenceHash,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        txHash: txHash,
+        relatedUserIds: uniqueRelatedUserIds
+      });
+
+      // 6️⃣ Success!
+      onDisputeRaised();
+      setIsOpen(false);
       toast({
-        title: 'Dispute Transaction Sent',
-        description: 'Please confirm in your wallet. The dispute will be logged shortly.',
+        title: 'Dispute Successfully Raised!',
+        description: foundDisputeId !== -1 ? `Dispute ID: ${foundDisputeId}` : 'Dispute recorded on-chain.',
       });
 
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Dispute Failed', description: e.message });
-      setPendingDispute(null); // Clear pending state on error
+      console.error('Dispute Error:', e);
+      toast({ variant: 'destructive', title: 'Dispute Failed', description: e.message || 'An error occurred.' });
+    } finally {
+      setIsSubmitting(false);
     }
-    // We do NOT set isSubmitting(false) here. The useEffect will do that.
   };
-
-  // --- JSX RETURN ---
-  // (Your component's <Dialog>, <Input>, <Button>, etc. JSX goes here)
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className="w-full md:w-auto"
+          className="w-full md:w-auto text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50"
           disabled={isSubmitting}
         >
           <AlertCircle className="mr-2 h-4 w-4" />
@@ -372,7 +302,6 @@ export function RaiseDisputeDialog({
       </DialogTrigger>
 
       <DialogContent>
-        {/* ✅ VisuallyHidden fallback title (Radix accessibility fix) */}
         <VisuallyHidden>
           <DialogTitle>Raise a Dispute</DialogTitle>
         </VisuallyHidden>
@@ -392,10 +321,12 @@ export function RaiseDisputeDialog({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={4}
+            disabled={isSubmitting}
           />
           <Button
             onClick={handleSubmitDispute}
             className="w-full"
+            variant="destructive"
             disabled={isSubmitting}
           >
             {(isSubmitting) && (
@@ -468,7 +399,7 @@ export function ShipmentDetailsClient({ shipment, userProfile }: { shipment: Shi
 
   
 
-  const ipfsGateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+  const ipfsGateway = process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://ipfs.io";
   const imageUrl = shipment.imageUrl.startsWith('https://') ? shipment.imageUrl : `${ipfsGateway}/ipfs/${shipment.imageUrl}`;
 
 

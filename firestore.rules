@@ -1,5 +1,5 @@
 /**
- * @file Firestore Security Rules for AgriChain DApp
+ * @file Firestore Security Rules for AgroChain DApp
  *
  * @core_philosophy This ruleset enforces a strict user-ownership model for profile data (farmers, transporters, industries, government authorities).
  *   Shipments are owned by farmers, and state updates are linked to transporters.

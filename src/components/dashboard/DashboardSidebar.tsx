@@ -44,12 +44,14 @@ const getNavLinksForRole = (role: Role, pendingCount: number = 0) => {
         { href: '/dashboard/shipments/active', label: 'Active Shipments', icon: Package },
         { href: '/dashboard/shipments/create', label: 'New Shipment', icon: Wheat },
         { href: '/dashboard/transporters', label: 'Transporters', icon: Truck },
+        { href: '/dashboard/shipments/history', label: 'History', icon: Landmark },
       ];
       break;
     case 'Transporter':
        links = [
          { href: '/dashboard/marketplace', label: 'Marketplace', icon: ShoppingCart },
          { href: '/dashboard/shipments/active', label: 'Active Shipments', icon: Package },
+         { href: '/dashboard/shipments/history', label: 'History', icon: Landmark },
       ];
       break;
     case 'Industry':
@@ -57,6 +59,7 @@ const getNavLinksForRole = (role: Role, pendingCount: number = 0) => {
         { href: '/dashboard/marketplace', label: 'Marketplace', icon: ShoppingCart },
         { href: '/dashboard/shipments/active', label: 'Active Shipments', icon: Package },
         { href: '/dashboard/transporters', label: 'Transporters', icon: Truck },
+        { href: '/dashboard/shipments/history', label: 'History', icon: Landmark },
       ];
       break;
     case 'Government':
@@ -126,7 +129,7 @@ export function DashboardSidebar({ user }: { user: AppUser }) {
         <div className="flex items-center gap-2">
             <AppLogo />
             <span className="font-headline text-xl font-bold group-data-[collapsible=icon]:hidden">
-                AgriChain
+                AgroChain
             </span>
         </div>
       </SidebarHeader>

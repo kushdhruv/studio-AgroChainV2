@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 export function PageHeader({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <header className={cn("p-4 sm:p-6 md:p-8 border-b bg-background/50 backdrop-blur-sm", className)}>
+    <header className={cn("w-full p-4 sm:p-6 md:p-8 border-b bg-background/50 backdrop-blur-sm", className)}>
       <div className="space-y-1.5">{children}</div>
     </header>
   );

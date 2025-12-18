@@ -36,9 +36,9 @@ export default function Home() {
     <div className="flex flex-col min-h-screen">
       <header className="py-4 px-4 md:px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2" aria-label="AgriChain Home">
+          <Link href="/" className="flex items-center gap-2" aria-label="AgroChain Home">
             <AppLogo />
-            <span className="font-headline text-2xl font-bold text-gray-800">AgriChain</span>
+            <span className="font-headline text-2xl font-bold text-gray-800">AgroChain</span>
           </Link>
           <nav className="flex items-center gap-2">
             <Button asChild variant="ghost" className="font-headline">
@@ -69,7 +69,7 @@ export default function Home() {
               Revolutionizing Agriculture, One Shipment at a Time.
             </h1>
             <p className="mt-4 max-w-2xl mx-auto text-lg md:text-xl text-card-foreground/80">
-              AgriChain connects farmers, transporters, and industries on a transparent, secure, and efficient blockchain platform.
+              AgroChain connects farmers, transporters, and industries on a transparent, secure, and efficient blockchain platform.
             </p>
             <div className="mt-8 flex justify-center gap-4">
               <Button asChild size="lg" className="font-headline bg-accent text-accent-foreground hover:bg-accent/90">
@@ -109,7 +109,7 @@ export default function Home() {
 
       <footer className="py-6 bg-muted">
         <div className="container mx-auto px-4 md:px-6 text-center text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} AgriChain. All Rights Reserved.</p>
+          <p>&copy; {new Date().getFullYear()} AgroChain. All Rights Reserved.</p>
         </div>
       </footer>
     </div>

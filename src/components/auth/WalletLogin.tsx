@@ -225,8 +225,8 @@ export default function WalletLogin() {
       farmer: '/dashboard',
       transporter: '/dashboard',
       industry: '/dashboard',
-      // Government should land on oversight
-      government: '/dashboard/oversight',
+      // Government should land on main dashboard
+      government: '/dashboard',
       oracle: '/dashboard/oracle',
       admin: '/admin',
     };

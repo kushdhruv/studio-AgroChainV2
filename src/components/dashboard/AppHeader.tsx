@@ -22,7 +22,7 @@ export function AppHeader({ user }: { user: AppUser }) {
   }
   
   return (
-    <header className="flex h-16 items-center justify-between border-b px-4 md:px-6 sticky top-0 bg-background/80 backdrop-blur-sm z-10">
+    <header className="w-full flex h-16 items-center justify-between border-b px-4 md:px-6 sticky top-0 bg-background/80 backdrop-blur-sm z-10">
       <div className="flex items-center gap-4">
         {isMobile && <SidebarTrigger />}
       </div>

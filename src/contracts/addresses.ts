@@ -13,20 +13,11 @@ type ContractAddresses = {
 // You can get these addresses from the output of your deployment script (e.g., `forge script`).
 // ==============================================================================================
 export const contractAddresses: ContractAddresses = {
-  // Example: '0x5FbDB2315678afecb367f032d93F642f64180aa3'
-  Registration: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-
-  // Example: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
-  OracleManager: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-
-  // Example: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-  ShipmentToken: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-
-  // Example: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9'
-  DisputeManager: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
-
-  // Example: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
-  EscrowPayment: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  Registration: '0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e',
+  OracleManager: '0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0',
+  ShipmentToken: '0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82',
+  DisputeManager: '0x0B306BF915C4d645ff596e518fAf3F9669b97016',
+  EscrowPayment: '0x9A676e781A523b5d0C0e43731313A708CB607508',
 } as const;
 
 // Validate all contract addresses on module load

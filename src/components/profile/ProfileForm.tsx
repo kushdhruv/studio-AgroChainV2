@@ -437,7 +437,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
               Upload your farming license or land ownership certificate. Stored securely on IPFS.
               {uploadedLicenseCid && (
                 <a
-                  href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`}
+                  href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://ipfs.io'}/ipfs/${uploadedLicenseCid}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="ml-2 text-accent underline"
@@ -486,7 +486,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">{uploadingLicense ? <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" /> : <Upload className="w-8 h-8 mb-4 text-muted-foreground" />}<p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">{uploadingLicense ? 'Uploading...' : 'Click to upload'}</span> or drag and drop</p><p className="text-xs text-muted-foreground">PDF, JPG, PNG (MAX. 5MB)</p></div>
                 )}
               </label>
-              <FormDescription>Upload your driving license. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
+              <FormDescription>Upload your driving license. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://ipfs.io'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
             </FormItem>
         </>;
       case 'Industry':
@@ -530,7 +530,7 @@ export function ProfileForm({ user: userProfile, onFinished }: { user: AppUser, 
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">{uploadingLicense ? <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" /> : <Upload className="w-8 h-8 mb-4 text-muted-foreground" />}<p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">{uploadingLicense ? 'Uploading...' : 'Click to upload'}</span> or drag and drop</p><p className="text-xs text-muted-foreground">PDF, JPG, PNG (MAX. 5MB)</p></div>
                 )}
               </label>
-              <FormDescription>Upload your company registration or incorporation certificate. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
+              <FormDescription>Upload your company registration or incorporation certificate. Stored securely on IPFS.{uploadedLicenseCid && <a href={`${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://ipfs.io'}/ipfs/${uploadedLicenseCid}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">View Document</a>}</FormDescription>
             </FormItem>
         </>;
       case 'Government':

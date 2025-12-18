@@ -12,6 +12,8 @@ import { doc, setDoc } from 'firebase/firestore';
 import { getContractAddress } from '@/contracts/addresses';
 import { RegistrationABI } from '@/contracts/Registration';
 import { OracleManagerABI } from '@/contracts/OracleManager'; // Import the OracleManager ABI
+import { EscrowPaymentABI } from '@/contracts/EscrowPayment';
+import { DisputeManagerABI } from '@/contracts/DisputeManager';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -26,7 +28,7 @@ import { firebaseConfig } from '@/firebase/config';
 const formSchema = z.object({
   address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Please enter a valid Ethereum address.'),
   name: z.string().min(3, 'Participant name is required.'),
-  role: z.enum(['Government', 'Admin', 'Oracle']),
+  role: z.enum(['Government', 'Admin', 'Oracle', 'EscrowManager']),
   email: z.string().email(),
   password: z.string().min(6, 'Password must be at least 6 characters long.'),
 });
@@ -94,6 +96,28 @@ export function TrustedParticipantManager() {
           args: [normalizedAddress, metadata],
         });
 
+      } else if (role === 'EscrowManager') {
+        const escrowAddress = getContractAddress('EscrowPayment');
+        if (!escrowAddress) throw new Error('EscrowPayment contract address not found.');
+
+        await writeContractAsync({
+            abi: EscrowPaymentABI,
+            address: escrowAddress,
+            functionName: 'setManager',
+            args: [normalizedAddress, true],
+        });
+
+        // Also authorize as Dispute Resolver
+        const disputeManagerAddress = getContractAddress('DisputeManager');
+        if (disputeManagerAddress) {
+            toast.loading('Authorizing as Dispute Resolver...', { id: toastId });
+            await writeContractAsync({
+                abi: DisputeManagerABI,
+                address: disputeManagerAddress,
+                functionName: 'setResolver',
+                args: [normalizedAddress, true],
+            });
+        }
       } else {
         const registrationContractAddress = getContractAddress('Registration');
         if (!registrationContractAddress) throw new Error('Registration contract address not found for this network.');
@@ -107,6 +131,32 @@ export function TrustedParticipantManager() {
           functionName: 'registerTrustedParticipant',
           args: [normalizedAddress, roleId, metadata],
         });
+
+        // If Government, also authorize as Dispute Resolver AND Escrow Manager
+        if (role === 'Government') {
+            const disputeManagerAddress = getContractAddress('DisputeManager');
+            const escrowAddress = getContractAddress('EscrowPayment');
+
+            if (disputeManagerAddress) {
+                toast.loading('Authorizing as Dispute Resolver...', { id: toastId });
+                await writeContractAsync({
+                    abi: DisputeManagerABI,
+                    address: disputeManagerAddress,
+                    functionName: 'setResolver',
+                    args: [normalizedAddress, true],
+                });
+            }
+
+            if (escrowAddress) {
+                toast.loading('Authorizing as Escrow Manager...', { id: toastId });
+                await writeContractAsync({
+                    abi: EscrowPaymentABI,
+                    address: escrowAddress,
+                    functionName: 'setManager',
+                    args: [normalizedAddress, true],
+                });
+            }
+        }
       }
 
       // Use normalized wallet address as the Firestore doc ID for consistency with wallet login flows
@@ -219,6 +269,7 @@ export function TrustedParticipantManager() {
                             <SelectItem value="Government">Government</SelectItem>
                             <SelectItem value="Admin">Admin</SelectItem>
                             <SelectItem value="Oracle">Oracle</SelectItem>
+                            <SelectItem value="EscrowManager">Escrow Manager</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />

@@ -16,4 +16,5 @@ export const config = createConfig({
   transports: {
     [localAnvil.id]: http('http://127.0.0.1:8545'),
   },
+  ssr: true,
 });

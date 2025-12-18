@@ -119,7 +119,8 @@ export const DisputeManagerABI = [
     "inputs": [
       { "name": "disputeId", "type": "uint256", "indexed": true },
       { "name": "shipmentId", "type": "bytes32", "indexed": true },
-      { "name": "raisedBy", "type": "address", "indexed": true }
+      { "name": "raisedBy", "type": "address", "indexed": true },
+      { "name": "timestamp", "type": "uint256", "indexed": false }
     ],
     "anonymous": false
   },
@@ -129,7 +130,9 @@ export const DisputeManagerABI = [
     "inputs": [
       { "name": "disputeId", "type": "uint256", "indexed": true },
       { "name": "evidenceHash", "type": "string", "indexed": false },
-      { "name": "submittedBy", "type": "address", "indexed": true }
+      { "name": "submittedBy", "type": "address", "indexed": true },
+      { "name": "oracle", "type": "address", "indexed": true },
+      { "name": "timestamp", "type": "uint256", "indexed": false }
     ],
     "anonymous": false
   },
@@ -138,8 +141,11 @@ export const DisputeManagerABI = [
     "name": "DisputeResolved",
     "inputs": [
       { "name": "disputeId", "type": "uint256", "indexed": true },
+      { "name": "shipmentId", "type": "bytes32", "indexed": true },
       { "name": "resolution", "type": "uint8", "indexed": false },
-      { "name": "resolvedBy", "type": "address", "indexed": true }
+      { "name": "resolutionNote", "type": "string", "indexed": false },
+      { "name": "resolvedBy", "type": "address", "indexed": true },
+      { "name": "timestamp", "type": "uint256", "indexed": false }
     ],
     "anonymous": false
   }

@@ -1,8 +1,8 @@
 
 
-export type Role = 'Farmer' | 'Transporter' | 'Industry' | 'Government' | 'Admin' | 'Oracle';
+export type Role = 'Farmer' | 'Transporter' | 'Industry' | 'Government' | 'Admin' | 'Oracle' | 'EscrowManager';
 
-export const ROLES: Role[] = ['Farmer', 'Transporter', 'Industry', 'Government', 'Admin', 'Oracle'];
+export const ROLES: Role[] = ['Farmer', 'Transporter', 'Industry', 'Government', 'Admin', 'Oracle', 'EscrowManager'];
 
 export interface User {
   // Basic Info
@@ -186,4 +186,5 @@ export interface Dispute {
     evidence: Evidence[];
     resolution?: 'REFUND_PAYER' | 'RELEASE_FUNDS';
     resolutionNote?: string;
+    relatedUserIds?: string[]; // IDs of all involved parties (Farmer, Industry, Transporter)
 }

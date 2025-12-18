@@ -144,12 +144,12 @@ export default function LoginPage() {
         chainId: chainId,
       });
 
-      const [role, , , , , active] = participantData as [bigint, bigint, bigint, string, string, boolean];
+      const [role, , , , active] = participantData as [bigint, bigint, bigint, bigint, boolean];
       const isAdminOnChain = Number(role) === onChainRoleMap.Admin && active;
 
       if (!isAdminOnChain) {
         throw new Error(
-          "Your wallet is not registered as an active Admin on-chain. " +
+          `Your wallet (${normalizedAddress}) is not registered as an active Admin on-chain. ` +
           "Please ensure you deployed the smart contracts and registered as Admin."
         );
       }

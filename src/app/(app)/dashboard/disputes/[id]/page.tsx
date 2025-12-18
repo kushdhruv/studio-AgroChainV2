@@ -54,8 +54,29 @@ export default function DisputeDetailPage() {
     );
   }
 
-  if (!dispute || !shipment || !userProfile) {
-    notFound();
+  if (!userProfile) {
+    return <div className="p-8 text-center text-destructive">Error: User profile not found.</div>;
+  }
+
+  if (!dispute) {
+    return (
+        <div className="p-8 text-center">
+            <h2 className="text-xl font-bold text-destructive mb-2">Dispute Not Found</h2>
+            <p className="text-muted-foreground">Could not find dispute with ID: <span className="font-mono">{id}</span></p>
+            <p className="text-sm text-muted-foreground mt-4">It might have been deleted or you may not have permission to view it.</p>
+        </div>
+    );
+  }
+
+  if (!shipment) {
+    return (
+        <div className="p-8 text-center">
+            <h2 className="text-xl font-bold text-destructive mb-2">Shipment Not Found</h2>
+            <p className="text-muted-foreground">
+                Found dispute, but could not find associated shipment ID: <span className="font-mono">{dispute.shipmentId}</span>
+            </p>
+        </div>
+    );
   }
 
   return (

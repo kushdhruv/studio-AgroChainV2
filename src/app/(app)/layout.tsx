@@ -115,11 +115,38 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // This component will only render when the profile is guaranteed to be loaded and not null.
   const serializableProfile = JSON.parse(JSON.stringify(profile));
 
+  const getBackgroundImage = (role?: string) => {
+    switch (role) {
+      case 'Farmer':
+        return '/images/backgrounds/farmer_bg.png';
+      case 'Transporter':
+        return '/images/backgrounds/transporter_bg.png';
+      case 'Industry':
+        return '/images/backgrounds/industrialist_bg.png';
+      default:
+        return null;
+    }
+  };
+
+  const bgImage = getBackgroundImage(serializableProfile.role);
+
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen relative">
+        {bgImage && (
+          <div 
+            className="fixed inset-0 z-0 pointer-events-none opacity-40"
+            style={{
+              backgroundImage: `url(${bgImage})`,
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              mixBlendMode: 'multiply'
+            }}
+          />
+        )}
         <DashboardSidebar user={serializableProfile} />
-        <SidebarInset className="flex-1 flex flex-col">
+        <SidebarInset className="flex-1 flex flex-col z-10 bg-transparent w-full overflow-hidden">
           <AppHeader user={serializableProfile} />
           <main className="flex-1">{children}</main>
         </SidebarInset>

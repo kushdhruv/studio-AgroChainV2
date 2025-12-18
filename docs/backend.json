@@ -3,7 +3,7 @@
     "User": {
       "title": "User",
       "type": "object",
-      "description": "Represents a user in the AgriChain system, regardless of role.",
+      "description": "Represents a user in the AgroChain system, regardless of role.",
       "properties": {
         "uid": { "type": "string", "description": "The user's unique ID from Firebase Auth." },
         "role": { "type": "string", "enum": ["Farmer", "Transporter", "Industry", "Government", "Admin"] },

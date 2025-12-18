@@ -17,9 +17,9 @@ function AdminHeader({ user }: { user: AppUser }) {
     return (
         <header className="flex h-16 items-center justify-between border-b px-4 md:px-6 sticky top-0 bg-background/80 backdrop-blur-sm z-10">
             <div className="flex items-center gap-4">
-                <Link href="/admin" className="flex items-center gap-2" aria-label="AgriChain Admin Home">
+                <Link href="/admin" className="flex items-center gap-2" aria-label="AgroChain Admin Home">
                     <AppLogo className="h-7 w-7" />
-                    <span className="font-headline text-xl font-bold text-gray-800">AgriChain Admin</span>
+                    <span className="font-headline text-xl font-bold text-gray-800">AgroChain Admin</span>
                 </Link>
             </div>
             <div className="flex items-center gap-4">

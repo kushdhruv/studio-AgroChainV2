@@ -24,13 +24,27 @@ const statusColors: { [key in Shipment['status']]: string } = {
 
 export function ShipmentCard({ shipment }: { shipment: Shipment }) {
   const ipfsGateway =
-    process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://gateway.pinata.cloud";
+    process.env.NEXT_PUBLIC_PINATA_GATEWAY || "https://ipfs.io";
 
   // ✅ Normalize image URL safely
+  // ✅ Normalize image URL safely
   let imageUrl = shipment.imageUrl?.trim() || "";
-  if (!imageUrl.startsWith("http")) {
+  
+  // Custom mapping for known waste types with broken images
+  const contentLower = shipment.content?.toLowerCase() || "";
+  if (contentLower.includes("fruit") || contentLower.includes("vegetable")) {
+    imageUrl = "/images/waste/fruit_veg_waste.png";
+  } else if (contentLower.includes("corn")) {
+    imageUrl = "/images/waste/corn_waste.png";
+  } else if (contentLower.includes("slaughterhouse")) {
+    imageUrl = "/images/waste/slaughterhouse_waste.png";
+  } else if (contentLower.includes("manure")) {
+    imageUrl = "/images/waste/animal_manure.png";
+  } else if (contentLower.includes("groundnut")) {
+    imageUrl = "/images/waste/groundnut_shells.png";
+  } else if (!imageUrl.startsWith("http") && imageUrl.length > 0) {
     imageUrl = `${ipfsGateway}/ipfs/${imageUrl}`;
-  } else if (!imageUrl.startsWith("https://")) {
+  } else if (!imageUrl.startsWith("https://") && imageUrl.length > 0) {
     imageUrl = `https://${imageUrl}`;
   }
 

@@ -4,7 +4,7 @@ import type { User as AppUser, Shipment, PendingApproval } from '@/lib/types';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, ShoppingCart, Truck, Landmark, Package, Search } from 'lucide-react';
+import { PlusCircle, ShoppingCart, Truck, Landmark, Package, Search, ShieldAlert } from 'lucide-react';
 import { ShipmentCard } from '@/components/marketplace/ShipmentCard';
 import { AdminDashboard } from '../admin/AdminDashboard';
 import { PageHeader, PageHeaderHeading, PageHeaderDescription } from '../common/PageHeader';
@@ -30,6 +30,8 @@ const statusColors: { [key in Shipment['status']]: string } = {
 export function DashboardPage({ user, shipments, pendingApprovals }: { user: AppUser, shipments: Shipment[], pendingApprovals: PendingApproval[] }) {
   const farmerShipments = shipments.filter(s => s.farmerId === user.uid);
   const transporterShipments = shipments;
+  const activeTransporterShipments = transporterShipments.filter(s => ['ReadyForPickup', 'In-Transit'].includes(s.status));
+  const inTransitTransporterShipments = transporterShipments.filter(s => s.status === 'In-Transit');
   const industryShipments = shipments.filter(s => s.industryId === user.uid);
   const industryActiveShipments = industryShipments.filter(s => ['AwaitingPayment', 'ReadyForPickup', 'In-Transit'].includes(s.status));
 
@@ -44,7 +46,7 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
             <Card>
             <CardHeader>
                 <CardTitle className="font-headline">Ready to sell?</CardTitle>
-                <CardDescription>List your agricultural produce or waste on the AgriChain marketplace.</CardDescription>
+                <CardDescription>List your agricultural produce or waste on the AgroChain marketplace.</CardDescription>
             </CardHeader>
             <CardContent>
                 <Button asChild className="bg-accent text-accent-foreground hover:bg-accent/90">
@@ -60,6 +62,9 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
             <CardContent>
                 <Button asChild>
                 <Link href="/dashboard/shipments/active"><Package className="mr-2 h-4 w-4" />View Active Shipments</Link>
+                </Button>
+                <Button asChild variant="outline" className="mt-2 w-full">
+                <Link href="/dashboard/shipments/history"><Landmark className="mr-2 h-4 w-4" />View History</Link>
                 </Button>
             </CardContent>
             </Card>
@@ -85,7 +90,7 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
       <div className="p-4 sm:p-6 md:p-8 space-y-8">
         <h3 className="font-headline text-2xl font-bold mb-4">Your Recent Active Shipments</h3>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {transporterShipments.length > 0 ? transporterShipments.slice(0,3).map(shipment => (
+            {activeTransporterShipments.length > 0 ? activeTransporterShipments.slice(0,3).map(shipment => (
                 <ShipmentCard key={shipment.id} shipment={shipment} />
             )) : (
               <Card className="md:col-span-2 lg:col-span-3">
@@ -98,16 +103,19 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
               </Card>
             )}
         </div>
-         {transporterShipments.length > 3 && (
-            <div className="text-center">
+         {activeTransporterShipments.length > 3 && (
+            <div className="text-center space-x-4">
                 <Button asChild variant="secondary">
                     <Link href="/dashboard/shipments/active">View All Active Shipments</Link>
+                </Button>
+                <Button asChild variant="outline">
+                    <Link href="/dashboard/shipments/history">View History</Link>
                 </Button>
             </div>
         )}
 
         <div>
-            <h3 className="font-headline text-2xl font-bold mb-4">Your Recent Listings</h3>
+            <h3 className="font-headline text-2xl font-bold mb-4">Your Recent History</h3>
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {transporterShipments.length > 0 ? transporterShipments.slice(0,3).map(shipment => (
                     <ShipmentCard key={shipment.id} shipment={shipment} />
@@ -132,7 +140,7 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
                 </TableRow>
                 </TableHeader>
                 <TableBody>
-                {transporterShipments.length > 0 ? transporterShipments.map(shipment => (
+                {inTransitTransporterShipments.length > 0 ? inTransitTransporterShipments.map(shipment => (
                     <TableRow key={shipment.id}>
                     <TableCell className="font-medium">{shipment.id.slice(0,10)}...</TableCell>
                     <TableCell>{shipment.content}</TableCell>
@@ -182,6 +190,9 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
             <CardContent>
                 <Button asChild>
                 <Link href="/dashboard/shipments/active"><Package className="mr-2 h-4 w-4" />View Active Shipments</Link>
+                </Button>
+                <Button asChild variant="outline" className="mt-2 w-full">
+                <Link href="/dashboard/shipments/history"><Landmark className="mr-2 h-4 w-4" />View History</Link>
                 </Button>
             </CardContent>
             </Card>
@@ -240,24 +251,24 @@ export function DashboardPage({ user, shipments, pendingApprovals }: { user: App
   );
 
   const GovernmentDashboardView = () => {
-    // Transform PendingApproval[] to the User[] that GovernmentDashboard expects
-    const initialUsers: AppUser[] = pendingApprovals.map(approval => ({
-      uid: approval.userId,
-      name: approval.name,
-      email: approval.email,
-      role: approval.role,
-      details: approval.details,
-      kycVerified: false, // By definition, these users are pending approval
-    }));
-
     return (
       <>
         <PageHeader>
           <PageHeaderHeading>Government Console</PageHeaderHeading>
-          <PageHeaderDescription>Approve KYC for new participants.</PageHeaderDescription>
+          <PageHeaderDescription>Manage disputes and oversee platform activity.</PageHeaderDescription>
         </PageHeader>
-        <div className="p-4 sm:p-6 md:p-8">
-          <GovernmentDashboard initialUsers={initialUsers} />
+        <div className="p-4 sm:p-6 md:p-8 space-y-6">
+          <Card>
+            <CardHeader>
+                <CardTitle className="font-headline">Dispute Management</CardTitle>
+                <CardDescription>Review and resolve disputes raised by platform participants.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Button asChild variant="destructive" className="w-full sm:w-auto">
+                    <Link href="/dashboard/disputes"><ShieldAlert className="mr-2 h-4 w-4" />View All Disputes</Link>
+                </Button>
+            </CardContent>
+          </Card>
         </div>
       </>
     );

@@ -25,10 +25,10 @@ export default function DisputesPage() {
       return query(disputesRef);
     }
 
-    // ✅ Others can only see disputes they raised
+    // ✅ Others can see disputes they are involved in
     return query(
       disputesRef,
-      where('raiserId', '==', appUser.uid)
+      where('relatedUserIds', 'array-contains', appUser.uid)
     );
   }, [firestore, appUser]);
 

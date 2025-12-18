@@ -23,7 +23,7 @@ export function useTokenBalance(tokenAddress?: `0x${string}` | string) {
 
   // Default to env token address if not provided
   const defaultTokenAddress = (
-    process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853'
+    process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3'
   ) as `0x${string}`;
 
   const token = (tokenAddress || defaultTokenAddress) as `0x${string}`;
