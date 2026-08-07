@@ -1,8 +1,15 @@
 # AgroChain Frontend Application
 
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Firebase](https://img.shields.io/badge/Firebase-Firestore-FFCA28?style=flat-square&logo=firebase&logoColor=black)](https://firebase.google.com/)
+[![Smart Contracts](https://img.shields.io/badge/Solidity-Agro__blockchain__contracts-blue?style=flat-square)](https://github.com/kushdhruv/Agro_blockchain_contracts)
+
 **Smart contracts:** [kushdhruv/Agro_blockchain_contracts](https://github.com/kushdhruv/Agro_blockchain_contracts)
 
 Modern, type-safe Next.js application for the AgroChain agricultural supply chain platform.
+
 
 ## 🚀 Quick Start
 
